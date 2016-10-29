@@ -5,10 +5,10 @@ import argparse
 
 import numpy as np
 
-import parserCommon
+import hicassembler.parserCommon as parserCommon
 
 import hicexplorer.HiCMatrix as HiCMatrix
-import hicexplorer.HiCAssembler_clean_copy as HiCAssembler
+import hicassembler.HiCAssembler as HiCAssembler
 
 import matplotlib
 matplotlib.use('Agg')

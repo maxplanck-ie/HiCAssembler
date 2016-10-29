@@ -6,8 +6,8 @@ import inspect
 import itertools
 import logging as log
 import time
-from iterativeCorrection import iterativeCorrection
-from reduceMatrix import reduce_matrix
+from hicexplorer.iterativeCorrection import iterativeCorrection
+from hicexplorer.reduceMatrix import reduce_matrix
 
 POWER_LAW_DECAY = 2**(-1.08) # expected exponential decay at 2*distance
 

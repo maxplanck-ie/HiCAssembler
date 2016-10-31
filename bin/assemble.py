@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 #-*- coding: utf-8 -*-
-
 import argparse
 
 import numpy as np
@@ -9,19 +8,17 @@ import hicassembler.parserCommon as parserCommon
 
 import hicexplorer.HiCMatrix as HiCMatrix
 import hicassembler.HiCAssembler as HiCAssembler
+import logging as log
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import cm
-import logging as log
-
-log.basicConfig(level=log.DEBUG)
-
 debug = 0
 
 TEMP_FOLDER = '/tmp/'
 
+log.basicConfig(level=log.DEBUG)
 
 def parse_arguments(args=None):
     parent_parser = parserCommon.getParentArgParse()
@@ -46,6 +43,8 @@ def main(args):
     # load matrix
     basename = args.outFile
     ma = HiCMatrix.hiCMatrix(args.matrix)
+    names_list = []
+
     assembl = HiCAssembler.HiCAssembler(ma)
 
     assembl.assemble_contigs()

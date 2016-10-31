@@ -93,12 +93,13 @@ class PathGraph(object):
         [0, 1, 2, 3]
         >>> S.add_node(4)
         >>> S[4]
+        [4]
         """
         if n not in self.node:
             raise KeyError('Node {} does not exists'.format(n))
         else:
             if n not in self.path_id:
-                return None
+                return [n]
             else:
                 return self.path[self.path_id[n]]
 
@@ -118,6 +119,8 @@ class PathGraph(object):
         --------
         >>> S = PathGraph()
         >>> S.add_node('C1')
+        >>> S['C1']
+        ['C1']
 
         Use keywords set/change node attributes:
 
@@ -170,7 +173,6 @@ class PathGraph(object):
                 if n not in self.path[path_id]:
                     raise PathGraphException("Node {} is not in path {}".format(n, path_id))
             else:
-                print "what?"
                 raise PathGraphException("Path id: {} does not exists".format(path_id))
 
             self.path_id[n] = path_id
@@ -195,26 +197,24 @@ class PathGraph(object):
         >>> S.add_path(['c1', 'c1', 'c2'])
         Traceback (most recent call last):
         ...
-        PathGraphException: Can't add path, it contains repeated elements
+        PathGraphException: Path contains repeated elements. Can't add path
 
 
         """
         nlist = list(nodes)
-
-        # members of the path can not be already part of a path
+        # check that the nodes do not belong to other path
         seen = set()
         for node in nlist:
-            try:
-                if self[node] is not None:
-                    raise PathGraphException("Node {} already belongs to another path. Can't add path".format(node))
-            except KeyError:
-                pass
+            if node in self.path_id:
+                raise PathGraphException("Node {} already belongs to another path. Can't add path".format(node))
             seen.add(node)
+
         if len(nodes) != len(seen):
-            raise PathGraphException("Can't add path, it contains repeated elements")
+            raise PathGraphException("Path contains repeated elements. Can't add path")
 
         # get a new path_id
         path_id = len(self.path)
+        assert path_id not in self.path, "*Error*, path_id already in path"
         self.path[path_id] = nodes
 
         # add nodes
@@ -271,14 +271,9 @@ class PathGraph(object):
 
             # check if the nodes are flanking a path
             path[node] = self[node]
-            if path[node]:
-                if node not in [path[node][0], path[node][-1]]:
-                    message = "Can't add edge {}-{}. Node {} does not exists ".format(u, v, node)
-                    raise PathGraphException(message)
-
-            else:
-                # if the node does not belong to a path, return
-                path[node] = [node]
+            if node not in [path[node][0], path[node][-1]]:
+                message = "Can't add edge {}-{}. Node {} does not exists ".format(u, v, node)
+                raise PathGraphException(message)
 
         # the idea is to join nodes u,v such that the
         # final path is [...., u, v, ...]
@@ -297,11 +292,40 @@ class PathGraph(object):
 
         # remove previous path and add new path
         for node in [u, v]:
-            if node in self.path_id:
-                del self.path[self.path_id[node]]
-                del self.path_id[node]
+            self.delete_path_containing_node(node)
 
         self.add_path(path[u] + path[v])
+
+    def delete_path_containing_node(self, n):
+        """
+
+        Parameters
+        ----------
+        n : path containing node id is deleted
+
+        Returns
+        -------
+
+
+        Examples
+        --------
+
+        >>> S = PathGraph()
+        >>> S.add_path([0,1,2,3])
+        >>> S[1]
+        [0, 1, 2, 3]
+
+        >>> S.delete_path_containing_node(2)
+        >>> S.path
+        {}
+        >>> S.path_id
+        {}
+        """
+        if n in self.path_id:
+            path_id = self.path_id[n]
+            for _n in self.path[self.path_id[n]]:
+                del self.path_id[_n]
+            del self.path[path_id]
 
 
 class PathGraphException(Exception):

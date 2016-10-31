@@ -4,12 +4,18 @@ import networkx as nx
 import gzip
 import inspect
 import itertools
-import logging as log
 import time
 from hicexplorer.iterativeCorrection import iterativeCorrection
 from hicexplorer.reduceMatrix import reduce_matrix
+from functools import wraps
 
-POWER_LAW_DECAY = 2**(-1.08) # expected exponential decay at 2*distance
+import logging
+log = logging.getLogger("HiCAssembler")
+log.setLevel(logging.DEBUG)
+
+#log.basicConfig(format='%(levelname)s[%(funcName)s]:%(message)s', level=logging.DEBUG)
+
+POWER_LAW_DECAY = 2**(-1.08)  # expected exponential decay at 2*distance
 
 MERGE_LENGTH = 2000  # after the first iteration, contigs are merged as multiples of this length
 MIN_LENGTH = 5000  # minimum contig or PE_scaffold length to consider
@@ -25,6 +31,20 @@ MERGE_LENGTH_GROW = 1.6
 SIM = False
 EXP = True
 debug = 1
+
+
+def timeit(fn):
+    @wraps(fn)
+    def with_profiling(*args, **kwargs):
+        start_time = time.time()
+
+        ret = fn(*args, **kwargs)
+
+        elapsed_time = time.time() - start_time
+        log.info("{} took {}".format(fn.__name__, elapsed_time))
+        return ret
+
+    return with_profiling
 
 
 class HiCAssembler:
@@ -51,28 +71,20 @@ class HiCAssembler:
         # one of those is composed of the contigs 1, 2 and 3
 
         # replace the diagonal from the matrix by zeros
-        #hic.diagflat(0)
+        # hic.diagflat(0)
 
-        log.basicConfig(format='%(levelname)s[%(funcName)s]:%(message)s', level=log.DEBUG)
         self.hic = hic
+
         # remove empty bins
         self.hic.maskBins(self.hic.nan_bins)
         del self.hic.orig_bin_ids
         del self.hic.orig_cut_intervals
+
         self.min_mad = min_mad
         self.max_mad = max_mad
 
         self.merged_paths = None
         self.iteration = 0
-
-        if debug:
-            self.error = []
-            self.bad_bw = 0
-            self.good_bw = 0
-
-        # remove from the matrix poor or duplicated bins
-        #self.remove_unreliable_rows()
-        #log.debug("Size of matrix is {}".format(self.hic.matrix.shape[0]))
 
         self.remove_noise_from_matrix()
 
@@ -82,16 +94,22 @@ class HiCAssembler:
 
         # build scaffolds graph. Bins on the same contig are
         # put together.
-        self.scaffolds_graph = Scaffolds(hic.cut_intervals)
+        from hicassembler.Scaffolds import Scaffolds
+        self.scaffolds_graph = Scaffolds(hic)
 
         # remove contigs that are too small
-        self.remove_small_contigs()
+        self.scaffolds_graph.remove_bins_by_size(MIN_LENGTH)
+
         log.debug("Size of matrix is {}".format(self.hic.matrix.shape[0]))
 
         # compute initial N50
         self.N50 = []
-        self.compute_N50(0)
+        self.N50.append(self.scaffolds_graph.compute_N50())
 
+        # the matrix may be of higher resolution than needed.
+        # For example, if dpnII RE was used the bins could be
+        # merged.
+        self.scaffolds_graph.merge_to_size(target_length=self.N50[-1])
         #self.matrix = hic.matrix.copy()
         #self.matrix.eliminate_zeros()
 
@@ -111,134 +129,6 @@ class HiCAssembler:
         self.hic.matrix.data[self.hic.matrix.data < 0] = 0
         self.hic.matrix.eliminate_zeros()
 
-    def remove_unreliable_rows(self, min_coverage=MIN_COVERAGE):
-        """
-        identifies rows that are too small.  Those rows will be
-        excluded from any computation.
-
-        Parameters
-        ----------
-        min_coverage
-
-        Returns
-        -------
-        None: The matrix object is edited in place
-
-        """
-        log.debug("filtering unreliable contigs")
-        contig_id, c_start, c_end, coverage = zip(*self.hic.cut_intervals)
-
-        # get length of each contig
-        length = np.array(c_end) - np.array(c_start)
-
-        # get the list of bins that have too few interactions to other
-        from hicCorrectMatrix import MAD
-        self.hic.matrix.data[np.isnan(self.hic.matrix.data)] = 0
-        row_sum = np.asarray(self.hic.matrix.sum(axis=1)).flatten()
-        row_sum = row_sum - self.hic.matrix.diagonal()
-        mad = MAD(row_sum)
-        modified_z_score = mad.get_motified_zscores()
-        log.debug("self.min_mad = {} counts".format(mad.mad_to_value(self.min_mad)))
-        few_inter = np.flatnonzero(modified_z_score < self.min_mad)
-        log.debug("self.max_mad = {} counts".format(mad.mad_to_value(self.max_mad)))
-        repetitive = np.flatnonzero(modified_z_score > self.max_mad)
-
-        # get list of bins that have reduced coverage:
-        low_cov_list = np.flatnonzero(np.array(coverage) < min_coverage)
-
-        to_remove = np.unique(np.hstack([few_inter, low_cov_list, repetitive]))
-
-        rows_to_keep = cols_to_keep = np.delete(range(self.hic.matrix.shape[1]), to_remove)
-        log.info("Total bins: {}, few inter: {}, low cover: {}, "
-                 "repetitive: {}".format(len(contig_id),
-                                         len(few_inter),
-                                         len(low_cov_list),
-                                         len(repetitive)))
-        if len(to_remove) >= self.hic.matrix.shape[0] * 0.7:
-            log.error("Filtering to strong. 70% of all regions would be removed.")
-            exit(0)
-
-        log.info("{}: removing {} ({:.2f}%) low quality regions from hic matrix\n"
-                 "having less than {} interactions to other contigs.\n\n"
-                 "Keeping {} bins.\n ".format(inspect.stack()[0][3], len(to_remove),
-                                              100 * float(len(to_remove))/self.hic.matrix.shape[0],
-                                              mad.mad_to_value(self.min_mad), len(rows_to_keep)))
-        total_length = sum(length)
-        removed_length = sum(length[to_remove])
-        kept_length = sum(length[rows_to_keep])
-
-        log.info("Total removed length:{:,} ({:.2f}%)\nTotal "
-                 "kept length: {:,}({:.2f}%)".format(removed_length,
-                                                     float(removed_length) / total_length,
-                                                     kept_length,
-                                                     float(kept_length) / total_length))
-        # remove rows and cols from matrix
-        new_matrix = self.hic.matrix[rows_to_keep, :][:, cols_to_keep]
-        new_cut_intervals = [self.hic.cut_intervals[x] for x in rows_to_keep]
-
-        # some rows may have now 0 read counts, remove them as well
-        to_keep = np.flatnonzero(np.asarray(new_matrix.sum(1)).flatten() > 0)
-        if len(to_keep) != new_matrix.shape[0]:
-            print "removing {} extra rows that after filtering ended up "\
-                "with no interactions".format(new_matrix.shape[0] - len(to_keep))
-            new_matrix = new_matrix[to_keep, :][:, to_keep]
-            new_cut_intervals = [new_cut_intervals[x] for x in to_keep]
-        self.hic.update_matrix(new_matrix, new_cut_intervals)
-        return self.hic
-
-    def remove_small_contigs(self, min_contig_length=MIN_LENGTH):
-        """
-        remove contigs that are smaller than min_contig_length
-
-        Parameters
-        ----------
-        min_contig_length : minimum contig length
-
-        Returns
-        -------
-
-        """
-        paths = self.scaffolds_graph.get_all_paths()
-        to_remove = [idx for idx, length in enumerate(self.scaffolds_graph.get_paths_length())
-                     if length < min_contig_length]
-        bins_to_remove = HiCAssembler.flatten_list([paths[x] for x in to_remove])
-        log.info("Removing {} small contigs".format(len(to_remove)))
-        rows_to_keep = cols_to_keep = np.delete(range(self.hic.matrix.shape[1]), bins_to_remove)
-
-        new_matrix = self.hic.matrix[rows_to_keep, :][:, cols_to_keep]
-        new_cut_intervals = [self.hic.cut_intervals[x] for x in rows_to_keep]
-        self.hic.update_matrix(new_matrix, new_cut_intervals)
-
-        self.scaffolds_graph.remove_paths(to_remove)
-
-    def compute_N50(self, merge_length):
-
-        length = np.sort(np.array(self.scaffolds_graph.get_paths_length()))
-        length = length[length > 200]
-        cumsum = np.cumsum(length)
-        for i in range(len(length)):
-            if cumsum[i] >= float(cumsum[-1]) / 2:
-                break
-        try:
-            iteration = self.iteration
-        except:
-            iteration = 0
-
-        log.info("iteration:{}\tN50: {}\tMax length: {} "
-                 "No. scaffolds {}".format(iteration, length[i],
-                                           length[-1],
-                                           len(self.scaffolds_graph.get_all_paths())))
-
-        if debug:
-            error = [abs(x[1]-x[0]) for x in self.error]
-            log.debug("bad bw {} ({:.2f} from {} good)errors {}".format(
-                    self.bad_bw, float(self.bad_bw)/(self.good_bw+self.bad_bw+0.01),
-                    self.good_bw, error))
-            self.bad_bw = self.good_bw = 0
-
-        self.N50.append((iteration, length[i], merge_length, self.scaffolds_graph.get_all_paths()))
-        return length[i]
-
     def assemble_contigs(self):
         """
 
@@ -247,16 +137,33 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.matrix.shape[0]))
-        #start_time = time.time()
-        #log.info("starting iterative correction")
-        #self.cmatrix_orig, cor_factors = iterativeCorrection(self.matrix, M=1000, verbose=True, tolerance=1e-4)[0]
-        #elapsed_time = time.time() - start_time
-        #log.debug("time iterative_correction: {:.5f}".format(elapsed_time))
-        #self.cmatrix = self.cmatrix_orig
 
-        stats = self.compute_distances()
+        mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
+
+
+        # turn sparse matrix into graph
+        mat = self.scaffolds_graph.hic.matrix.copy()
+        mat.data[mat.data < stats[1]['median']] = 0
+        mat.eliminate_zeros()
+        G = nx.from_scipy_sparse_matrix(self.scaffolds_graph.hic.matrix)
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        plt.title("test")
+        nx.draw(G, pos=nx.spring_layout(G), with_labels=True )
+        plt.savefig("/tmp/G.png")
+
+        G = nx.minimum_spanning_tree(G)
+        plt.title("test")
+        nx.draw(G, pos=nx.spring_layout(G), with_labels=True)
+        plt.savefig("/tmp/G_mst.png")
+
+        exit()
+        self.G = self.get_nearest_neighbors_2(self.paths, min_neigh=2, trans=False,
+                                              max_int=max_int,
+                                              threshold=confident_threshold)
+
         log.debug(((np.arange(1, ITER)**MERGE_LENGTH_GROW)*MERGE_LENGTH).astype(int))
-
         # for iter_num in range(1,ITER+1):
         for merge_length in ((np.arange(1, ITER)**MERGE_LENGTH_GROW)*MERGE_LENGTH).astype(int):
             self.iteration += 1
@@ -317,72 +224,6 @@ class HiCAssembler:
             prev_merge_length = merge_length
             """
         return
-
-    def compute_distances(self, merge_length=1):
-        """
-        takes the information from all bins that are split
-        or merged and returns two values and two vectors. The
-        values are the average length used and the sd.
-        The vectors are: one containing the number of contacts found for such
-        distance and the third one containing the normalized
-        contact counts for different distances.
-        The distances are 'bin' distance. Thus,
-        if two bins are next to each other, they are at distance 1
-
-        """
-        log.info("[{}] computing distances".format(inspect.stack()[0][3]))
-
-        # get all paths (connected components) longer than 1
-        conn = [x for x in self.scaffolds_graph.get_all_paths() if len(x) > 1]
-        label, start, end, coverage = zip(*self.hic.cut_intervals)
-        # get the length of bins in conn
-        if len(conn) == 0:
-            message = "Print no joined bins\n"
-            message += "Can't determine distance estimations for merge_length {} ".format(merge_length)
-            raise HiCAssemblerException(message)
-
-        if len(conn) > 200:
-            # otherwise too many computations will be made
-            # but 200 cases are enough to get
-            # an idea of the distribution of values
-            conn = conn[0:200]
-        if len(conn) < 20:
-            message = "Contigs not long enough to compute a merge of length {} ".format(merge_length)
-            raise HiCAssemblerException(message)
-
-        bins = HiCAssembler.flatten_list(conn)
-        bin_length = np.array(end)[bins] - np.array(start)[bins]
-        mean_bin_length = np.mean(bin_length)
-        sd_bin_length = np.std(bin_length)
-
-        log.info("Mean bin length: {} sd{}".format(mean_bin_length, sd_bin_length))
-
-        # use all connected components to estimate distances
-        dist_dict = dict()
-        for path in conn:
-            # take upper triangle of matrix containing selected path
-            sub_m = triu(self.hic.matrix[path, :][:, path], k=1, format='coo')
-            # find counts that are one bin apart, two bins apart etc.
-            dist_list = sub_m.col - sub_m.row
-            # tabulate all values that correspond
-            # to distances
-            for distance in np.unique(dist_list):
-                if distance not in dist_dict:
-                    dist_dict[distance] = sub_m.data[dist_list == distance]
-                else:
-                    dist_dict[distance] = np.hstack([dist_dict[distance],
-                                                     sub_m.data[dist_list == distance]])
-
-        # consolidate data:
-        consolidated_dist_value = dict()
-        for k, v in dist_dict.iteritems():
-            consolidated_dist_value[k] = {'mean': np.mean(v),
-                                          'median': np.median(v),
-                                          'max': np.max(v),
-                                          'min': np.min(v),
-                                          'len': len(v)}
-
-        return mean_bin_length, sd_bin_length, consolidated_dist_value
 
     def reduce_to_flanks_and_center(self, flank_length=20000):
         """
@@ -1013,420 +854,6 @@ class HiCAssembler:
                 pass
 
         return flanks
-
-
-class Scaffolds:
-    """
-    This class is a place holder to keep track of the iterative scaffolding.
-    The underlying data structure is a special directed graph that does
-    not allow more than two edges per node.
-
-    The list of paths in the graph (in the same order) is paired with
-    the rows in the HiC matrix.
-
-    Example:
-
-    >>> S = Scaffolds([('c-0', 0, 1, 1), ('c-1', 0, 1, 1), ('c-2', 0, 1, 1),
-    ... ('c-4', 0, 1, 1), ('c-4', 0, 1, 1)])
-
-    the list [('c-0', 0, 1, 1), ... ] has the format of the HiCMatrix attribute cut_intervals
-    That has the format (chromosome name or contig name, start position, end position). Each
-    HiC bin is determined by this parameters
-    >>> S.contig_G.add_path([0, 1, 2, 3, 4])
-
-
-    """
-    def __init__(self, cut_intervals):
-        """
-
-        Parameters
-        ----------
-        cut_intervals
-
-        Returns
-        -------
-
-        Examples
-        -------
-        >>> S = Scaffolds([('c-0', 0, 1, 1), ('c-1', 0, 1, 1), ('c-2', 0, 1, 1),
-        ... ('c-4', 0, 1, 1), ('c-4', 0, 1, 1)])
-
-        """
-        # initialize the list of contigs as a graph with no edges
-        self.paths = None
-        self.split_contigs = None
-        self.id2contig_name = []
-
-        # initialize the contigs directed graph        
-        self.contig_G = nx.DiGraph()
-        self.contig_length = self._init_contig_graph(cut_intervals)
-
-    def _init_contig_graph(self, cut_intervals):
-        """Uses the hic information for each row (cut_intervals)
-        to initialize a graph in which each node corresponds to
-        a contig.
-
-        This method is called by the __init__ see example there
-
-        Parameters
-        ----------
-        cut_intervals : the cut_intervals attribute of a HiCMatrix object
-
-        Returns
-        -------
-
-        """
-        from collections import defaultdict
-        label, start, end, coverage = zip(*cut_intervals)
-        length_array = np.array(end) - np.array(start)
-        prev_label = None
-        i = 1
-        self.split_contigs = defaultdict(list)
-        contig_id = None
-        prev_contig_id = None
-        for index in range(len(cut_intervals)):
-
-            # if the id of the contig is identical
-            # to the previous contig, add and edge.
-            # Contigs with the same ID are those
-            # divided by restriction fragment bins
-            # and should be joined with and edge
-            if prev_label == label[index]:
-                label_name = "{}-{}".format(label[index], i)
-                assert contig_id is not None, "contig_id is not set"
-                prev_contig_id = contig_id
-                if i == 1:
-                    # insert first group member
-                    self.split_contigs[label[index]].append(contig_id)
-                i += 1
-            else:
-                i = 1
-                label_name = label[index]
-                prev_label = label_name
-            # contig id is the row index in the hic matrix
-            attr = {'name': label_name,
-                    'start': start[index],
-                    'end': end[index],
-                    'coverage': coverage[index],
-                    'length': length_array[index]}
-            contig_id = self.add_contig(label[index], **attr)
-            if i > 1:
-                assert prev_contig_id is not None, "prev_contig id not set"
-                self.split_contigs[label[index]].append(contig_id)
-                self.contig_G.add_edge(prev_contig_id, contig_id,
-                                       iteration=0,
-                                       contig_part=True,
-                                       source_direction=0,
-                                       target_direction=1)
-
-        return length_array
-
-    def add_contig(self, contig_name, **attr):
-        """
-        Adds contig by name and assigns it an id
-
-        Parameters
-        ----------
-        contig_name
-        attr
-
-        Returns
-        -------
-        contig id
-
-        """
-        self.id2contig_name.append(contig_name)
-        contig_id = len(self.id2contig_name) - 1
-        if 'name' not in attr.keys():
-            attr['name'] = contig_name
-        attr['id'] = contig_id
-        attr['label'] = '{}'.format(contig_id)
-        self.contig_G.add_node(contig_id, **attr)
-        self.paths = None
-        return contig_id
-
-    def get_flanks(self, flatten=False):
-        """
-
-        Parameters
-        ----------
-        flatten
-
-        Returns
-        -------
-
-        Examples
-        --------
-
-        >>> S = Scaffolds([('c-0', 0, 1, 1)])
-        >>> S.contig_G.add_path([1, 2, 3, 4])
-        >>> S.contig_G.add_path([5, 6])
-        >>> S.get_flanks()
-        [(0, 0), (1, 4), (5, 6)]
-        >>> S.get_flanks(flatten=True)
-        [0, 0, 1, 4, 5, 6]
-        """
-        flanks = [(x[0], x[-1]) for x in self.get_all_paths()]
-        if flatten:
-            flanks = [x for pair in flanks for x in pair]
-        return flanks
-
-    def get_all_paths(self):
-        """Returns all paths in the graph.
-        This is similar to get connected components in networkx
-        but in this case, the order of the returned  paths
-        represents scaffolds of contigs
-
-        >>> S = Scaffolds([('c-0', 0, 1, 1), ('c-0', 1, 2, 1), ('c-0', 2, 3, 1),
-        ... ('c-2', 0, 1, 1), ('c-2', 1, 2, 1), ('c-3', 0, 1, 1)])
-        >>> S.get_all_paths()
-        [[0, 1, 2], [3, 4], [5]]
-        """
-        if self.paths:
-            return self.paths
-
-        self.paths = [x for x in nx.weakly_connected_components(self.contig_G)]
-
-        """
-        seen = []
-        paths = []
-        # the sorted function is to
-        # get reproducible results because
-        # networkx uses a dict to store each
-        # node and the order in which they are
-        # returned could vary
-        for v, data in sorted(self.contig_G.nodes(data=True)):
-            if v not in seen:
-                path = self.get_path_containing_source(v)
-                paths.append(path)
-                seen.extend(path)
-
-        self.paths = paths
-        """
-
-        return self.paths
-
-    def get_path_containing_source(self, v):
-        """
-        For a node v in a directed graph, find its
-        successor, then the successor of the successor
-        until no more successors are found. Then a similar
-        iteration is repeat for the predecessors.
-
-        Because each node has at most one successor and one
-        predecessor, the resulting path is ordered.
-        In other words, if nodes a, b, c, and d are
-        connected as a --> b --> c --> d, the result
-        of this function is [a, b, c, d].
-
-        Parameters
-        ----------
-
-        v : a node id from the graph
-
-        Returns
-        -------
-
-        A list of the path that contains node v
-
-        >>> S = Scaffolds([('c-0', 0, 1, 1)])
-        >>> S.get_path_containing_source(0)
-        [0]
-        >>> S.contig_G.add_path([1, 2, 3, 4])
-        >>> S.get_path_containing_source(4)
-        [1, 2, 3, 4]
-        """
-        source = v
-        path = [v]
-        # append all successors from node v
-        while True:
-            s = self.contig_G.successors(v)
-            if s and s[0] not in path:
-                path.append(s[0])
-                v = s[0]
-            else:
-                break
-
-        # get all predecessors from node v
-        v = source
-        while True:
-            p = self.contig_G.predecessors(v)
-            if p and p[0] not in path:
-                path.insert(0, p[0])
-                v = p[0]
-            else:
-                break
-        return path
-
-    def get_paths_length(self):
-        # get PE_scaffolds length
-        path_lengths = []
-        for scaff in self.get_all_paths():
-            path_lengths.append(sum([self.contig_G.node[x]['length'] for x in scaff]))
-
-        return np.array(path_lengths)
-
-    def get_contigs_length(self):
-        return self.contig_length
-
-    def remove_paths(self, ids_to_remove):
-        """
-        Removes a path from the self.path list
-        using the given ids_to_remove
-        Parameters
-        ----------
-        ids_to_remove : List of ids to be removed. Eg. [1, 5, 20]
-
-        Returns
-        -------
-        None
-        """
-        paths = self.get_all_paths()
-        # translate path indices in mask_list back to contig ids
-        # and merge into one list using sublist trick
-        paths_to_remove = [paths[x] for x in ids_to_remove]
-        contig_list = [item for sublist in paths_to_remove for item in sublist]
-
-        self.contig_G.remove_nodes_from(contig_list)
-        # reset the paths
-        self.paths = None
-
-    def has_edge(self, u, v):
-        return self.contig_G.has_edge(u, v) or self.contig_G.has_edge(v, u)
-
-    def check_edge(self, u, v):
-        # check if the edge already exists
-        if self.has_edge(u, v):
-            message = "Edge between {} and {} already exists".format(u, v)
-            raise HiCAssemblerException(message)
-
-        # check if the node has less than 2 edges
-        for node in [u, v]:
-            if self.contig_G.degree(node) == 2:
-                message = "Edge between {} and {} not possible,  contig {} " \
-                          "is not a flaking node ({}, {}). ".format(u, v, node,
-                                                                    self.contig_G.predecessors(node),
-                                                                    self.contig_G.successors(node))
-                raise HiCAssemblerException(message)
-
-        # check if u an v are the two extremes of a path,
-        # joining them will create a loop
-        if self.contig_G.degree(u) == 1 and self.contig_G.degree(v) == 1:
-            if v in self.get_path_containing_source(u):
-                message = "The edges {}, {} form a closed loop.".format(u, v)
-                raise HiCAssemblerException(message)
-
-    def add_edge(self, u, v, **attr):
-        """
-        Given a node u and a node v, this function appends and edge between u and v.
-        Importantly, the function checks that this operation is possible. If u is
-        not at the edge of a path, then a new node can not be added.
-
-        Parameters
-        ----------
-        u : node id
-        v : node id
-        attr
-
-        Returns
-        -------
-        None
-
-        Examples
-        --------
-
-        >>> S = Scaffolds([('c-0', 0, 1, 1), ('c-1', 0, 1, 1), ('c-2', 0, 1, 1)])
-        >>> S.contig_G.add_path([0, 1, 2])
-        >>> S.paths = None
-        >>> contig_3 = S.add_contig('contig-3')
-        >>> S.add_edge(2, contig_3)
-        >>> S.get_all_paths()
-        [[0, 1, 2, 3]]
-        """
-        if 'no_check' not in attr:
-            self.check_edge(u, v)
-
-        # check if the node exists
-        for node in [u, v]:
-            if not self.contig_G.has_node(node):
-                message = "Node {} does not exists ".format(node)
-                raise HiCAssemblerException(message)
-
-        # if u already has a successor
-        # invert the direction of the
-        # path it belongs to
-        if self.contig_G.out_degree(u) > 0:
-            self.invert_path_containing_source(u)
-
-        # if v already has a successor
-        # invert the direction of the
-        # path it belongs to
-        if self.contig_G.in_degree(v) > 0:
-            self.invert_path_containing_source(v)
-
-        self.contig_G.add_edge(u, v, **attr)
-        # reset paths
-        self.paths = None
-
-    def get_neighbors(self, u):
-        """
-        Give a node u, it returns the
-        successor and predecessor nodes
-
-        Parameters
-        ----------
-        u : Node
-
-        Returns
-        -------
-        predecessors and sucessors
-
-        """
-        return self.contig_G.predecessors(u) + self.contig_G.successors(u)
-
-    def invert_path_containing_source(self, v):
-        """
-        Inverts a path
-
-        Parameters
-        ----------
-        v
-
-        Returns
-        -------
-
-        Examples
-        --------
-
-        >>> S = Scaffolds([('c-0', 0, 1, 1), ('c-1', 0, 1, 1), ('c-2', 0, 1, 1),
-        ... ('c-4', 0, 1, 1), ('c-4', 0, 1, 1)])
-        >>> S.contig_G.add_path([0, 1, 2, 3, 4], source_direction=1, \
-        target_direction=0)
-        >>> S.invert_path_containing_source(0)
-
-        The source, directions flags should be flipped
-        >>> S.contig_G.edges(4, data=True)
-        [(4, 3, {'source_direction': 0, 'contig_part': True, 'iteration': 0, 'target_direction': 1})]
-        """
-        path = self.get_path_containing_source(v)
-        for index in range(len(path) - 1):
-            v = path[index]
-            u = path[index + 1]
-            e_data = self.contig_G.edge[v][u]
-            # swap source target direction
-            try:
-                e_data['source_direction'],  e_data['target_direction'] = \
-                    e_data['target_direction'],  e_data['source_direction']
-            except KeyError:
-                # this case happens for hic edges
-                pass
-            self.contig_G.remove_edge(v, u)
-            self.contig_G.add_edge(u, v, e_data)
-
-        self.paths = None
-
-    def save_network(self, file_name):
-        nx.write_gml(self.contig_G, file_name)
 
 
 class HiCAssemblerException(Exception):

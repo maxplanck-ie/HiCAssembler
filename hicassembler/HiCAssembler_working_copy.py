@@ -69,7 +69,7 @@ def timeit(fn):
         ret = fn(*args, **kwargs)
 
         elapsed_time = time.time() - start_time
-        print "{} took {}".format(fn.__name__, elapsed_time)
+        log.debug("{} took {}".format(fn.__name__, elapsed_time))
         return ret
 
     return with_profiling

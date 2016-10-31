@@ -267,10 +267,9 @@ class Scaffolds(object):
         [[0, 1, 2, 3, 4, 5]]
         >>> hic = S.merge_to_size(target_length=20)
         >>> S.hic.matrix.todense()
-        matrix([[  0.        ,  20.57154815,  20.5712791 ],
-                [ 20.57154815,   0.        ,  20.5712791 ],
-                [ 20.5712791 ,  20.5712791 ,   0.        ]])
-
+        matrix([[ 11.26259299,  21.9378206 ,  17.42795074],
+                [ 21.9378206 ,   6.86756935,  21.82307214],
+                [ 17.42795074,  21.82307214,  11.37726956]])
         >>> S.hic.cut_intervals
         [('c-0', 0, 20, 10.5), ('c-0', 20, 40, 20.5), ('c-0', 40, 60, 30.5)]
         >>> list(S.get_all_paths())
@@ -321,7 +320,7 @@ class Scaffolds(object):
         if len(reduce_paths) < 2:
             log.info("Reduce paths to small {}. Returning".format(len(reduce_paths)))
             return None, None
-        reduced_matrix = reduce_matrix(self.hic.matrix, reduce_paths)
+        reduced_matrix = reduce_matrix(self.hic.matrix, reduce_paths, diagonal=True)
 
         # correct reduced_matrix
         start_time = time.time()
@@ -337,6 +336,8 @@ class Scaffolds(object):
         self.contig_G = PathGraph()
         self._init_path_graph()
 
+        # TODO: remove debug line
+        self.hic.save("data/merged_bins_corrected.h5")
         return self.hic
 
     def get_flanks(self, path, flank_length, recursive_repetitions, counter=0):
@@ -511,21 +512,18 @@ class Scaffolds(object):
         if len(self.contig_G.path) == 0:
             raise HiCAssemblerException("Print no paths found\n")
 
-        # get mean and sd of the bin lengths
-        path_length = self.contig_G.path.values()
-        mean_path_length = np.mean(path_length)
-        sd_path_length = np.std(path_length)
-
-        log.info("Mean path length: {} sd{}".format(mean_path_length, sd_path_length))
-
-        # use all connected components to estimate distances
+        # use all paths to estimate distances
         dist_dict = dict()
+        path_length = []
         for count, path in enumerate(self.contig_G.path.values()):
             if count > 200:
                 # otherwise too many computations will be made
                 # but 200 cases are enough to get
                 # an idea of the distribution of values
                 break
+            for n in path:
+                path_length.append(self.contig_G.node[n]['length'])
+
             # take upper triangle of matrix containing selected path
             sub_m = triu(self.hic.matrix[path, :][:, path], k=1, format='coo')
             # find counts that are one bin apart, two bins apart etc.
@@ -539,6 +537,11 @@ class Scaffolds(object):
                     dist_dict[distance] = np.hstack([dist_dict[distance],
                                                      sub_m.data[dist_list == distance]])
 
+        # get mean and sd of the bin lengths
+        mean_path_length = np.mean(path_length)
+        sd_path_length = np.std(path_length)
+        log.info("Mean path length: {} sd{}".format(mean_path_length, sd_path_length))
+
         # consolidate data:
         consolidated_dist_value = dict()
         for k, v in dist_dict.iteritems():
@@ -550,6 +553,51 @@ class Scaffolds(object):
             if len(v) < 10:
                 log.warn('stats for distance {} contain only {} samples'.format(k, len(v)))
         return mean_path_length, sd_path_length, consolidated_dist_value
+
+    @logit
+    def get_nearest_neighbors(self, confidence_score):
+        matrix = self.hic.matrix.copy()
+
+        matrix.data[matrix.data <= confidence_score] = 0
+        matrix.eliminate_zeros()
+        matrix = triu(matrix, k=1, format='coo')
+
+        flanks = []
+        singletons = []
+        for path in self.get_all_paths():
+            if len(path) == 1:
+                singletons.extend(path)
+            else:
+                flanks.extend([path[0], path[-1]])
+
+        import networkx as nx
+
+        G=nx.Graph()
+        nodes = flanks + singletons
+        for index, value in enumerate(matrix.data):
+            row_id = matrix.row[index]
+            col_id = matrix.col[index]
+            if row_id in nodes and col_id in nodes:
+                G.add_edge(row_id, col_id, weight=value)
+
+        seen = set()
+        for node in G:
+            if G.degree(node) == 1 and node in flanks and node not in seen:
+                try:
+                    self.contig_G.add_edge(node, G[node].keys()[0])
+                except:
+                    pass
+                seen.update([node, G[node].keys()[0]])
+            elif G.degree(node) == 2 and node in singletons and node not in seen:
+                self.contig_G.add_edge(node, G[node].keys()[0])
+                seen.update([node, G[node].keys()[0]])
+                self.contig_G.add_edge(node, G[node].keys()[1])
+                seen.add(G[node].keys()[1])
+
+            else:
+                log.info("Node {} is a hub with degree {}".format(node, G.degree(node)))
+
+        import ipdb;ipdb.set_trace()
 
     @logit
     def get_nearest_neighbors_2(self, confidence_score):

@@ -109,7 +109,7 @@ class HiCAssembler:
         # the matrix may be of higher resolution than needed.
         # For example, if dpnII RE was used the bins could be
         # merged.
-        self.scaffolds_graph.merge_to_size(target_length=self.N50[-1])
+        self.scaffolds_graph.merge_to_size(target_length=float(self.N50[-1])/2)
         #self.matrix = hic.matrix.copy()
         #self.matrix.eliminate_zeros()
 
@@ -140,12 +140,17 @@ class HiCAssembler:
 
         mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
 
-
+        self.scaffolds_graph.get_nearest_neighbors(stats[2]['median'])
         # turn sparse matrix into graph
+        self.scaffolds_graph.hic.diagflat(0)
         mat = self.scaffolds_graph.hic.matrix.copy()
-        mat.data[mat.data < stats[1]['median']] = 0
-        mat.eliminate_zeros()
-        G = nx.from_scipy_sparse_matrix(self.scaffolds_graph.hic.matrix)
+
+        #mat.data[mat.data < stats[1]['median'] * 0.75] = 0
+        #mat.eliminate_zeros()
+        #mat.data = 1.0 / mat.data
+        G = nx.from_scipy_sparse_matrix(mat)
+        import ipdb;ipdb.set_trace()
+        nx.write_gml(G, 'data/G.gml')
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
@@ -153,9 +158,9 @@ class HiCAssembler:
         nx.draw(G, pos=nx.spring_layout(G), with_labels=True )
         plt.savefig("/tmp/G.png")
 
-        G = nx.minimum_spanning_tree(G)
+        mst = nx.minimum_spanning_tree(G, weight='weight')
         plt.title("test")
-        nx.draw(G, pos=nx.spring_layout(G), with_labels=True)
+        nx.draw(mst, pos=nx.spring_layout(mst), with_labels=True)
         plt.savefig("/tmp/G_mst.png")
 
         exit()

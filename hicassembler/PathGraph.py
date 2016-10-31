@@ -214,6 +214,11 @@ class PathGraph(object):
 
         # get a new path_id
         path_id = len(self.path)
+        if path_id in self.path:
+            for index in range(len(self.path) + 1):
+                if index not in self.path:
+                    path_id = index
+                    break
         assert path_id not in self.path, "*Error*, path_id already in path"
         self.path[path_id] = nodes
 
@@ -261,6 +266,10 @@ class PathGraph(object):
         >>> S[4]
         [0, 1, 2, 3, 4, 5]
 
+        >>> S.add_edge(0, 5)
+        Traceback (most recent call last):
+        ...
+        PathGraphException: Joining nodes 0, 5 forms a circle
         """
         path = {}
         for node in [u, v]:
@@ -275,6 +284,12 @@ class PathGraph(object):
                 message = "Can't add edge {}-{}. Node {} does not exists ".format(u, v, node)
                 raise PathGraphException(message)
 
+        # check that nodes are not already in the same path
+        try:
+            if self.path_id[u] == self.path_id[v]:
+                raise PathGraphException("Joining nodes {}, {} forms a circle".format(u, v))
+        except KeyError:
+            pass
         # the idea is to join nodes u,v such that the
         # final path is [...., u, v, ...]
         # for this, the paths containing u and v has to be

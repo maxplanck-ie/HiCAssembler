@@ -96,7 +96,7 @@ class PathGraph(object):
         [4]
         """
         if n not in self.node:
-            raise KeyError('Node {} does not exists'.format(n))
+            raise PathGraphNodeUnknown('Node {} does not exists'.format(n))
         else:
             if n not in self.path_id:
                 return [n]
@@ -136,7 +136,7 @@ class PathGraph(object):
         >>> S.path_id['C1']
         Traceback (most recent call last):
         ...
-        KeyError: 'C1'
+        PathGraphNodeUnknown: 'C1'
 
         >>> S.add_node('C2')
         >>> S.add_node('C3')
@@ -282,12 +282,12 @@ class PathGraph(object):
             path[node] = self[node]
             if node not in [path[node][0], path[node][-1]]:
                 message = "Can't add edge {}-{}. Node {} does not exists ".format(u, v, node)
-                raise PathGraphException(message)
+                raise PathGraphEdgeNotPossible(message)
 
         # check that nodes are not already in the same path
         try:
             if self.path_id[u] == self.path_id[v]:
-                raise PathGraphException("Joining nodes {}, {} forms a circle".format(u, v))
+                raise PathGraphEdgeNotPossible("Joining nodes {}, {} forms a circle".format(u, v))
         except KeyError:
             pass
         # the idea is to join nodes u,v such that the
@@ -366,3 +366,10 @@ class PathGraph(object):
 
 class PathGraphException(Exception):
     """Base class for exceptions in PathGraph"""
+
+
+class PathGraphNodeUnknown(PathGraphException):
+    """Exception when trying to access an unknown node"""
+
+class PathGraphEdgeNotPossible(PathGraphException):
+    """Exception when trying to add an edge where one of the nodes is inside a path or when the edge forms a loop"""

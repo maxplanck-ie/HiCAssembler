@@ -719,17 +719,63 @@ class Scaffolds(object):
 
         matrix.data[matrix.data <= confidence_score] = 0
         matrix.eliminate_zeros()
-        matrix = triu(matrix, k=1, format='coo')
 
-        flanks = []
-        singletons = []
+        # get nodes that can be joined
+        flanks = []  # a node that is either the first or last in a path
+        singletons = []  # a node that has not been joined any other
         for path in self.get_all_paths():
             if len(path) == 1:
                 singletons.extend(path)
             else:
                 flanks.extend([path[0], path[-1]])
 
+        edge_nodes = flanks + singletons
+        # get a matrix of nodes that can be joined
+        matrix = NamedMatrix(matrix[edge_nodes:edge_nodes], edge_nodes)
+
+        # get degree of nodes
+        node_degree = matrix.matrix.as_type(bool).sum(0)
+        node_degree = dict([(edge_nodes[x], node_degree[x]) for x in range(len(node_degree))])
+
+        # iterate by highest to smallest degree nodes:
+        seen = set()
+        for node, degree in sorted(node_degree.iteritems(), key=lambda (k,v):v, reverse=True):
+            seen.add(node)
+            if degree >= 5:
+                continue
+            elif degree > 2:
+                # use bandwidth to find best order
+            elif degree == 2 and node in singletons:
+                
+
+
+        # iterate by number of contacts decreasingly
+        matrix = triu(matrix, k=1, format='coo')
+        order_index = np.argsort(matrix.data)[::-1]
+
+        for index in order_index:
+            row_id = matrix.row[index]
+            col_id = matrix.col[index]
+            weight = matrix.data[index]
+
+            add_edge = True
+            for node_id in [row_id, col_id]:
+                if node_degree(node_id) >= 5 or node_id not in flanks + singletons:
+                    add_edge = False
+
+            if add_edge is True:
+                if node_degree
+                try:
+                    self.contig_G.add_edge(row_id, col_id, weight=weight)
+                except PathGraph.PathGraphEdgeNotPossible as e:
+                    log.info(e)
+
+
+        # remove from resulting network all nodes that have a
+        # degree > 5
         import networkx as nx
+        G = nx.from_scipy_sparse_matrix(matrix)
+
 
         G = nx.Graph()
         nodes = flanks + singletons
@@ -1018,3 +1064,18 @@ def get_test_matrix(cut_intervals=None):
     hic.setMatrix(hic.matrix, cut_intervals)
     return hic
 
+
+class NamedMatrix(object):
+    """
+    Object to get labeled rows in a matrix
+    """
+    def __init__(self, matrix, row_labels):
+        assert matrix.shape[0] == matrix.shape[1], "matrix no squared"
+        assert len(row_labels) == matrix.shape[0], "row len != matrix shape"
+        self.labels = dict([[row_labels[index], index] for index in range(len(row_labels))])
+        self.matrix = matrix
+
+    def __getitem__(self, index):
+        return self.matrix[self.labels[index[0]], self.labels[index[1]]]
+    def __setitem__(self, index, x):
+        self.matrix[self.labels[index[0]], self.labels[index[1]]] = x

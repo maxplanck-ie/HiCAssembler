@@ -17,6 +17,7 @@ class PathGraph(object):
         self.node = {}
         self.path = {}
         self.path_id = {}  # maps nodes to paths
+        self.adj = {} # to store the edges
 
     def __iter__(self):
         """Iterate over the nodes. Use the expression 'for n in S'.
@@ -136,7 +137,7 @@ class PathGraph(object):
         >>> S.path_id['C1']
         Traceback (most recent call last):
         ...
-        PathGraphNodeUnknown: 'C1'
+        KeyError: 'C1'
 
         >>> S.add_node('C2')
         >>> S.add_node('C3')
@@ -163,6 +164,7 @@ class PathGraph(object):
 
         if n not in self.node:
             self.node[n] = attr_dict
+            self.adj[n] = {}
 
         else:  # update attr even if node already exists
             self.node[n].update(attr_dict)
@@ -177,7 +179,7 @@ class PathGraph(object):
 
             self.path_id[n] = path_id
 
-    def add_path(self, nodes):
+    def add_path(self, nodes, attr_dict=None, **attr):
         """Add a path consisting of the ordered nodes
 
         Parameters
@@ -185,6 +187,14 @@ class PathGraph(object):
         nodes : iterable container
             A container of nodes.  A path will be constructed from
             the nodes (in order) and added to the graph.
+
+        attr_dict : dictionary, optional (default= no attributes)
+            Dictionary of edge attributes.  Key/value pairs will
+            update existing data associated with the edge.
+
+        attr : keyword arguments, optional
+            Edge data (or labels or objects) can be assigned using
+            keyword arguments.
 
 
         Examples
@@ -199,8 +209,19 @@ class PathGraph(object):
         ...
         PathGraphException: Path contains repeated elements. Can't add path
 
-
+        >>> S = PathGraph()
+        >>> S.add_path([0,1,2,3], weight=1000)
+        >>> S.adj[1]
+        {0: {'weight': 1000}, 2: {'weight': 1000}}
         """
+        if attr_dict is None:
+            attr_dict = attr
+        else:
+            try:
+                attr_dict.update(attr)
+            except AttributeError:
+                raise PathGraphException("The attr_dict argument must be a dictionary.")
+
         nlist = list(nodes)
         # check that the nodes do not belong to other path
         seen = set()
@@ -226,7 +247,16 @@ class PathGraph(object):
         for node in nlist:
             self.add_node(node, path_id=path_id)
 
-    def add_edge(self, u, v):
+        for i in range(len(nlist)-1):
+            u = nlist[i]
+            v = nlist[i+1]
+            # add the edges
+            datadict = self.adj[u].get(v, {})
+            datadict.update(attr_dict)
+            self.adj[u][v] = datadict
+            self.adj[v][u] = datadict
+
+    def add_edge(self, u, v, attr_dict=None, **attr):
         """
         Given a node u and a node v, this function appends and edge between u and v.
         Importantly, the function checks that this operation is possible. If u is
@@ -236,7 +266,13 @@ class PathGraph(object):
         ----------
         u : node id
         v : node id
-        attr
+        attr_dict : dictionary, optional (default= no attributes)
+            Dictionary of edge attributes.  Key/value pairs will
+            update existing data associated with the edge.
+
+        attr : keyword arguments, optional
+            Edge data (or labels or objects) can be assigned using
+            keyword arguments.
 
         Returns
         -------
@@ -261,16 +297,27 @@ class PathGraph(object):
         # check that first path is inverted
         >>> S = PathGraph()
         >>> S.add_path([2, 1,0])
-        >>> S.add_path([3, 4, 5])
-        >>> S.add_edge(2,3)
+        >>> S.add_path([3, 4, 5], weight=3)
+        >>> S.add_edge(2,3, weight=10)
         >>> S[4]
         [0, 1, 2, 3, 4, 5]
+
+        >>> S.adj[3]
+        {2: {'weight': 10}, 4: {'weight': 3}}
 
         >>> S.add_edge(0, 5)
         Traceback (most recent call last):
         ...
-        PathGraphException: Joining nodes 0, 5 forms a circle
+        PathGraphEdgeNotPossible: Joining nodes 0, 5 forms a circle
         """
+        if attr_dict is None:
+            attr_dict = attr
+        else:
+            try:
+                attr_dict.update(attr)
+            except AttributeError:
+                raise PathGraphException("The attr_dict argument must be a dictionary.")
+
         path = {}
         for node in [u, v]:
             # check if the node exists
@@ -310,6 +357,11 @@ class PathGraph(object):
             self.delete_path_containing_node(node)
 
         self.add_path(path[u] + path[v])
+        datadict = self.adj[u].get(v, {})
+        datadict.update(attr_dict)
+        self.adj[u][v] = datadict
+        self.adj[v][u] = datadict
+
 
     def delete_path_containing_node(self, n):
         """
@@ -370,6 +422,7 @@ class PathGraphException(Exception):
 
 class PathGraphNodeUnknown(PathGraphException):
     """Exception when trying to access an unknown node"""
+
 
 class PathGraphEdgeNotPossible(PathGraphException):
     """Exception when trying to add an edge where one of the nodes is inside a path or when the edge forms a loop"""

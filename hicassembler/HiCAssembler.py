@@ -129,6 +129,27 @@ class HiCAssembler:
         self.hic.matrix.data[self.hic.matrix.data < 0] = 0
         self.hic.matrix.eliminate_zeros()
 
+    def get_contig_order(self):
+        super_scaffolds = []
+        for path in self.scaffolds_graph.get_all_paths():
+            prev_contig_name = None
+            prev_node_id = None
+            scaffold = []
+            for node in path:
+                contig_name = self.scaffolds_graph.contig_G.node[node]['name']
+                if prev_contig_name is not None and contig_name != prev_contig_name:
+                    scaffold.append((prev_contig_name, direction))
+                else:
+                    if node > prev_node_id:
+                        direction = '+'
+                    else:
+                        direction = '-'
+                prev_contig_name = contig_name
+                prev_node_id = node
+            scaffold.append((contig_name, direction))
+            super_scaffolds.append(scaffold)
+        return super_scaffolds, self.scaffolds_graph.get_all_paths()
+
     def assemble_contigs(self):
         """
 
@@ -141,6 +162,7 @@ class HiCAssembler:
         mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
 
         self.scaffolds_graph.get_nearest_neighbors(stats[2]['median'])
+        return self.get_contig_order()
         # turn sparse matrix into graph
         self.scaffolds_graph.hic.diagflat(0)
         mat = self.scaffolds_graph.hic.matrix.copy()

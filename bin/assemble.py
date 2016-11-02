@@ -46,8 +46,35 @@ def main(args):
     names_list = []
 
     assembl = HiCAssembler.HiCAssembler(ma)
+    #super_contigs = [[('2L:305900-611856(-)', '-'), ('2L:0-305840(+)', '+')], [('2L:920303-1234732(-)', '-'), ('2L:611916-920243(-)', '-')], [('X:529918-845891(+)', '+'), ('X:232641-529858(-)', '-'), ('X:111714-172055(+)', '-'), ('X:172057-186647(-)', '+'), ('X:187262-212208(+)', '-')], [('X:1152489-1460680(+)', '+'), ('X:845951-1152429(-)', '-')]]
+    super_contigs, paths = assembl.assemble_contigs()
+    super_check_list = []
+    for s_contig in super_contigs:
+        check_list = []
+        for contig in s_contig:
+            # check if the join is correct
+            name, direction = contig
+            name = name.replace("(-)", ":minus").replace("(+)", ":plus").replace('-', ':')
+            try:
+                chrom, start, end, strand = name.split(':')
+            except:
+                import ipdb;ipdb.set_trace()
+            start = int(start)
+            end = int(end)
+            if strand == 'minus':
+                start, end = end, start
 
-    assembl.assemble_contigs()
+            if direction == '-':
+                start, end = end, start
+            check_list.append([start, end])
+
+        if check_list[0][0] > check_list[-1][-1]:
+            check_list = [x[::-1] for x in check_list][::-1]
+        if sorted(sum(check_list,[])) != sum(check_list, []):
+            log.warn("Problem with {}".format(check_list))
+        super_check_list.append(check_list)
+    import ipdb;ipdb.set_trace()
+
     data = {'scaffolds':assembl.N50,
             'id2contig_pos': assembl.hic.cut_intervals,
             'contig_name': assembl.scaffolds.id2contig_name,

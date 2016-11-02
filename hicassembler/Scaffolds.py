@@ -9,6 +9,7 @@ from hicexplorer.reduceMatrix import reduce_matrix
 from hicexplorer.iterativeCorrection import iterativeCorrection
 from scipy.sparse import triu
 from functools import wraps
+import itertools
 
 logging.basicConfig()
 log = logging.getLogger("Scaffolds")
@@ -554,8 +555,166 @@ class Scaffolds(object):
                 log.warn('stats for distance {} contain only {} samples'.format(k, len(v)))
         return mean_path_length, sd_path_length, consolidated_dist_value
 
+    @staticmethod
+    @logit
+    def find_best_permutation(ma, paths):
+        """
+        Computes de bandwidth(bw) for all permutations of rows (and, because
+        the matrix is symmetric of cols as well).
+        Returns the permutation having the minumum bw.
+
+        The fixed pairs are not separated when considering
+        the permutations to test
+
+        Parameters
+        ----------
+        ma: HiCMatrix object
+        paths: list of paths, containing paths that should not be reorder
+
+        Returns
+        -------
+        path
+
+        Examples
+        --------
+        >>> from scipy.sparse import csr_matrix
+        >>> A = csr_matrix(np.array(
+        ... [[12,5,3,2,0],
+        ...  [0,11,4,1,1],
+        ...  [0,0,9,6,0],
+        ...  [0,0,0,10,0],
+        ...  [0,0,0,0,0]]))
+        >>> Scaffolds.find_best_permutation(A, [[2], [3,4]])
+        [[2], [3, 4]]
+        >>> Scaffolds.find_best_permutation(A, [[2],[3],[4]])
+        [[3], [2], [4]]
+        """
+        indices = sum(paths, [])
+        ma = ma[indices, :][:, indices]
+
+        # mapping from 'indices' to new matrix id
+        mapping = dict([(val, idx) for idx, val in enumerate(indices)])
+        bw_value = []
+        perm_list = []
+#        for perm in itertools.permutations(enc_indices):
+        for perm in itertools.permutations(paths):
+            log.debug("testing permutation {}".format(perm))
+            for expnd in Scaffolds.permute_paths(perm):
+                if expnd[::-1] in perm_list:
+                    continue
+                expand_indices = sum(expnd, [])
+                mapped_perm = [mapping[x] for x in expand_indices]
+                bw_value.append(Scaffolds.bw(ma[mapped_perm, :][:, mapped_perm]))
+                perm_list.append(expnd)
+
+        min_val = min(bw_value)
+        min_indx = bw_value.index(min_val)
+
+        return perm_list[min_indx]
+
+    @staticmethod
+    def bw(ma):
+        """
+        Computes my version of the bandwidth of the matrix
+        which is defined as \sum_i\sum_{j=i} log(M(i,j)*(j-i))
+        The matrix that minimizes this function should have
+        higher values next to the main diagonal and
+        decreasing values far from the main diagonal
+        """
+        ma = triu(ma, k=1, format='coo').astype(float)
+        ma.data *= (ma.col - ma.row)
+        return ma.sum()
+
+    @staticmethod
+    def permute_paths(paths):
+        """
+        Flips a path if it contains more than one element
+        and returns all possible combinations
+
+        Parameters
+        ----------
+        paths : list of paths
+
+        >>> Scaffolds.permute_paths([[1, 2]])
+        [[[1, 2]], [[2, 1]]]
+        >>> Scaffolds.permute_paths([[1,2], [3]])
+        [[[1, 2], [3]], [[2, 1], [3]]]
+        >>> Scaffolds.permute_paths([[1], [2], [3,4], [5]])
+        [[[1], [2], [3, 4], [5]], [[1], [2], [4, 3], [5]]]
+        >>> Scaffolds.permute_paths([[1,2], [3,4], [5,6]])[0:3]
+        [[[1, 2], [3, 4], [5, 6]], [[1, 2], [3, 4], [6, 5]], [[1, 2], [4, 3], [5, 6]]]
+        >>> Scaffolds.permute_paths([[1], [2], [3]])
+        [[[1], [2], [3]]]
+        """
+        #paths = [[1, 2], [3]]
+        combinations = []
+        len_paths_longer_one = sum([1 for x in paths if len(x) > 1])
+
+        # `itertools.product(*[(0, 1)]*len_paths_longer_one)`
+        # generates all binary combinations of the given length
+        # thus, itertools.product(*[(0, 1)] *2:
+        # [(0, 0), (0, 1), (1, 0), (1, 1)]
+        #
+        # itertools.product(*[(0, 1)] *3:
+        # [(0, 0, 0), (0, 0, 1), (0, 1, 0), (0, 1, 1), .... ]
+
+        for prod in itertools.product(*[(0, 1)]*len_paths_longer_one):
+            combination = []
+            bigger_path_pos = 0
+            for path in paths:
+                if len(path) == 1:
+                    combination.append(path)
+                else:
+                    # decide if the path should be flipped
+                    # using the prod tuple
+                    combination.append(path if prod[bigger_path_pos] == 0 else path[::-1])
+                    bigger_path_pos += 1
+
+            combinations.append(combination)
+        return combinations
+
+    @staticmethod
+    def encode_fixed_paths(paths):
+        """
+        Parameters
+        ----------
+        paths: list of paths
+
+        Returns
+        -------
+        list of paths,
+        >>> Scaffolds.encode_fixed_paths([[1], [2,4], [3]])
+        [1, ',2,4', 3]
+
+        >>> Scaffolds.encode_fixed_paths([[1,2,3,4], [5,6], [7], [8,9]])
+        [',1,2,3,4', ',5,6', 7, ',8,9']
+
+        """
+        encoded_paths_list = []
+        for path in paths:
+            if len(path) > 1:
+                encoded_paths_list += [',' + ','.join([str(x) for x in path])]
+            else:
+                # add singleton
+                encoded_paths_list += path
+        return encoded_paths_list
+
     @logit
     def get_nearest_neighbors(self, confidence_score):
+        """
+        The algorithm works in two stages
+
+        1. paths are connected for clear cases
+        2. the bandwidth method is used for complicated cases
+
+        Parameters
+        ----------
+        confidence_score : threshdold to remove values from the hic matrix
+
+        Returns
+        -------
+
+        """
         matrix = self.hic.matrix.copy()
 
         matrix.data[matrix.data <= confidence_score] = 0
@@ -572,7 +731,7 @@ class Scaffolds(object):
 
         import networkx as nx
 
-        G=nx.Graph()
+        G = nx.Graph()
         nodes = flanks + singletons
         for index, value in enumerate(matrix.data):
             row_id = matrix.row[index]
@@ -581,23 +740,62 @@ class Scaffolds(object):
                 G.add_edge(row_id, col_id, weight=value)
 
         seen = set()
+        hub = set()
         for node in G:
             if G.degree(node) == 1 and node in flanks and node not in seen:
                 try:
                     self.contig_G.add_edge(node, G[node].keys()[0])
                 except:
+                    log.info("Can't join {} and {} as they are in same path"
+                             "".format(node, G[node].keys()[0]))
                     pass
                 seen.update([node, G[node].keys()[0]])
-            elif G.degree(node) == 2 and node in singletons and node not in seen:
+            elif G.degree(node) <= 2 and node in singletons and node not in seen:
                 self.contig_G.add_edge(node, G[node].keys()[0])
                 seen.update([node, G[node].keys()[0]])
                 self.contig_G.add_edge(node, G[node].keys()[1])
                 seen.add(G[node].keys()[1])
 
             else:
-                log.info("Node {} is a hub with degree {}".format(node, G.degree(node)))
+                if node not in seen:
+                    log.info("Node {} is a hub with degree {}".format(node, G.degree(node)))
+                    hub.add(node)
 
-        import ipdb;ipdb.set_trace()
+        # try to solve hubs by using the bandwidth
+        seen = set()
+        solved_paths = []
+        hub_over_5 = set()
+        hub_below_5 = set()
+        for node in hub:
+            # skip nodes with too many links
+            if G.degree(node) > 5:
+                hub_over_5.add(node)
+            else:
+                hub_below_5.add(node)
+
+        for node in hub_below_5:
+            fixed_paths = []
+            for v in G[node].keys():
+                if v in seen:
+                    continue
+                path = self.contig_G[v]
+                seen.update(path)
+
+                fixed_paths.append(self.contig_G[v])
+            if len(fixed_paths) > 1:
+                check = True
+                for _path in fixed_paths:
+                    for v in _path:
+                        if v in hub_over_5:
+                            log.debug("{} in path {} is hub. Discarding {}".format(v, _path, fixed_paths))
+                            check = False
+                            break
+                if check is True:
+                    solved_paths.append(Scaffolds.find_best_permutation(self.hic.matrix, fixed_paths))
+
+        for s_path in solved_paths:
+            self.contig_G.merge_paths(s_path)
+
 
     @logit
     def get_nearest_neighbors_2(self, confidence_score):
@@ -723,7 +921,7 @@ class Scaffolds(object):
         if self.iteration==2:
             import pdb;pdb.set_trace()
         if self.merged_paths:
-            flanks = set(HiCAssembler.flatten_list(
+            flanks = set(Scaffolds.flatten_list(
                     [[x[0],x[-1]] for x in self.merged_paths]))
             for edge in G.edges():
                 if len(flanks.intersection(edge)) == 0:

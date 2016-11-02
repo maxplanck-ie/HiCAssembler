@@ -362,7 +362,6 @@ class PathGraph(object):
         self.adj[u][v] = datadict
         self.adj[v][u] = datadict
 
-
     def delete_path_containing_node(self, n):
         """
 

@@ -226,7 +226,7 @@ class PathGraph(object):
         for node in nlist:
             self.add_node(node, path_id=path_id)
 
-    def add_edge(self, u, v, **attr):
+    def add_edge(self, u, v):
         """
         Given a node u and a node v, this function appends and edge between u and v.
         Importantly, the function checks that this operation is possible. If u is
@@ -341,6 +341,27 @@ class PathGraph(object):
             for _n in self.path[self.path_id[n]]:
                 del self.path_id[_n]
             del self.path[path_id]
+
+    def merge_paths(self, paths):
+        """
+        Given a list of paths, those are merged into a larger path
+        Parameters
+        ----------
+        paths: list of paths
+
+        Returns
+        -------
+
+        """
+        merged_path = sum(paths, [])
+        if len(merged_path) != len(set(merged_path)):
+            raise PathGraphException("Path contains repeated elements. Can't add path")
+
+        # delete paths to merge
+        for path in paths:
+            self.delete_path_containing_node(path[0])
+
+        self.add_path(merged_path)
 
 
 class PathGraphException(Exception):

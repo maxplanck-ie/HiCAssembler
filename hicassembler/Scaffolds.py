@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, lil_matrix, triu
 import logging
 import time
 import hicexplorer.HiCMatrix as HiCMatrix
@@ -7,7 +7,6 @@ from hicassembler.PathGraph import PathGraph
 from hicassembler.HiCAssembler import HiCAssemblerException
 from hicexplorer.reduceMatrix import reduce_matrix
 from hicexplorer.iterativeCorrection import iterativeCorrection
-from scipy.sparse import triu
 from functools import wraps
 import itertools
 
@@ -101,6 +100,7 @@ class Scaffolds(object):
 
         >>> S.contig_G[4]
         [3, 4]
+
         """
 
         contig_path = []
@@ -715,6 +715,21 @@ class Scaffolds(object):
         -------
 
         """
+        def _join_degree_one_nodes():
+            # iterate by edge, joining those paths
+            # that are unambiguous
+            _degree = G.get_degree()
+            from hicassembler.PathGraph import PathGraphEdgeNotPossible, PathGraphException
+            for u, v, weight in G.get_edges():
+                if _degree[u] == 1 and _degree[v] == 1:
+                    try:
+                        self.contig_G.add_edge(u, v, weight=weight)
+                    except PathGraphEdgeNotPossible as e:
+                        log.info(e)
+                    # unset edge in graph
+                    G[u, v] = 0
+                # TODO: some singletons with degree two could be  also joined
+
         matrix = self.hic.matrix.copy()
 
         matrix.data[matrix.data <= confidence_score] = 0
@@ -730,117 +745,69 @@ class Scaffolds(object):
                 flanks.extend([path[0], path[-1]])
 
         edge_nodes = flanks + singletons
-        # get a matrix of nodes that can be joined
-        matrix = NamedMatrix(matrix[edge_nodes:edge_nodes], edge_nodes)
+        # remove from matrix all nodes that are not `edge_nodes`
+        # turn matrix in to a simple graph
+        ma = matrix[edge_nodes, :][:, edge_nodes]
+        # remove diagonal
+        ma.setdiag([0]*len(edge_nodes))
+        G = SimpleGraph(ma, edge_nodes)
 
-        # get degree of nodes
-        node_degree = matrix.matrix.as_type(bool).sum(0)
-        node_degree = dict([(edge_nodes[x], node_degree[x]) for x in range(len(node_degree))])
+        # remove edge if edge_nodes are connected
+        for path in self.get_all_paths():
+            if len(path) == 2:
+                G[path[0], path[1]] = 0
 
-        # iterate by highest to smallest degree nodes:
-        seen = set()
-        for node, degree in sorted(node_degree.iteritems(), key=lambda (k,v):v, reverse=True):
-            seen.add(node)
-            if degree >= 5:
-                continue
-            elif degree > 2:
-                # use bandwidth to find best order
-            elif degree == 2 and node in singletons:
-                
-
-
-        # iterate by number of contacts decreasingly
-        matrix = triu(matrix, k=1, format='coo')
-        order_index = np.argsort(matrix.data)[::-1]
-
-        for index in order_index:
-            row_id = matrix.row[index]
-            col_id = matrix.col[index]
-            weight = matrix.data[index]
-
-            add_edge = True
-            for node_id in [row_id, col_id]:
-                if node_degree(node_id) >= 5 or node_id not in flanks + singletons:
-                    add_edge = False
-
-            if add_edge is True:
-                if node_degree
-                try:
-                    self.contig_G.add_edge(row_id, col_id, weight=weight)
-                except PathGraph.PathGraphEdgeNotPossible as e:
-                    log.info(e)
-
-
-        # remove from resulting network all nodes that have a
-        # degree > 5
-        import networkx as nx
-        G = nx.from_scipy_sparse_matrix(matrix)
-
-
-        G = nx.Graph()
-        nodes = flanks + singletons
-        for index, value in enumerate(matrix.data):
-            row_id = matrix.row[index]
-            col_id = matrix.col[index]
-            if row_id in nodes and col_id in nodes:
-                G.add_edge(row_id, col_id, weight=value)
-
-        seen = set()
-        hub = set()
-        for node in G:
-            if G.degree(node) == 1 and node in flanks and node not in seen:
-                try:
-                    self.contig_G.add_edge(node, G[node].keys()[0])
-                except:
-                    log.info("Can't join {} and {} as they are in same path"
-                             "".format(node, G[node].keys()[0]))
-                    pass
-                seen.update([node, G[node].keys()[0]])
-            elif G.degree(node) <= 2 and node in singletons and node not in seen:
-                self.contig_G.add_edge(node, G[node].keys()[0])
-                seen.update([node, G[node].keys()[0]])
-                self.contig_G.add_edge(node, G[node].keys()[1])
-                seen.add(G[node].keys()[1])
-
-            else:
-                if node not in seen:
-                    log.info("Node {} is a hub with degree {}".format(node, G.degree(node)))
-                    hub.add(node)
+        _join_degree_one_nodes()
 
         # try to solve hubs by using the bandwidth
+        node_degree = G.get_degree()
         seen = set()
         solved_paths = []
-        hub_over_5 = set()
         hub_below_5 = set()
-        for node in hub:
-            # skip nodes with too many links
-            if G.degree(node) > 5:
-                hub_over_5.add(node)
-            else:
+        hub_over_5 = set()
+        for node, degree in node_degree.iteritems():
+            if degree <= 4:
                 hub_below_5.add(node)
+            else:
+                hub_over_5.add(node)
 
-        for node in hub_below_5:
+        # sort edges by decreasing weight
+        for u, v, weight in sorted(G.get_edges(), key=lambda(u, v, w): w, reverse=True):
             fixed_paths = []
-            for v in G[node].keys():
-                if v in seen:
+            for node in G.adj(u) + G.adj(v):
+                if node in seen:
                     continue
-                path = self.contig_G[v]
+                path = self.contig_G[node]
                 seen.update(path)
 
-                fixed_paths.append(self.contig_G[v])
+                fixed_paths.append(self.contig_G[node])
             if len(fixed_paths) > 1:
                 check = True
                 for _path in fixed_paths:
-                    for v in _path:
-                        if v in hub_over_5:
-                            log.debug("{} in path {} is hub. Discarding {}".format(v, _path, fixed_paths))
+                    for node in _path:
+                        if node in hub_over_5:
+                            log.debug("{} in path {} is hub. Discarding {}".format(node, _path, fixed_paths))
                             check = False
                             break
                 if check is True:
                     solved_paths.append(Scaffolds.find_best_permutation(self.hic.matrix, fixed_paths))
 
         for s_path in solved_paths:
-            self.contig_G.merge_paths(s_path)
+            for index, path in enumerate(s_path[:-1]):
+                # s_path has the form: [1, 2, 3], [4, 5, 6]
+                u = path[-1]
+                v = s_path[index + 1][0]
+                try:
+                    self.contig_G.add_edge(u, v, weight=G[u, v])
+                except:
+                    import ipdb;ipdb.set_trace()
+                for node in [u, v]:
+                    for adj in G.adj(node):
+                        G[node, adj] = 0
+
+        _join_degree_one_nodes()
+
+        import ipdb;ipdb.set_trace()
 
 
     @logit
@@ -1065,17 +1032,90 @@ def get_test_matrix(cut_intervals=None):
     return hic
 
 
-class NamedMatrix(object):
+class SimpleGraph(object):
     """
-    Object to get labeled rows in a matrix
+    Object to use a symmetric matrix as a graph
     """
     def __init__(self, matrix, row_labels):
         assert matrix.shape[0] == matrix.shape[1], "matrix no squared"
         assert len(row_labels) == matrix.shape[0], "row len != matrix shape"
-        self.labels = dict([[row_labels[index], index] for index in range(len(row_labels))])
-        self.matrix = matrix
+        self.labels2index = dict([[row_labels[index], index] for index in range(len(row_labels))])
+        self.index2label = row_labels
+        self.matrix = matrix.tolil()
 
     def __getitem__(self, index):
-        return self.matrix[self.labels[index[0]], self.labels[index[1]]]
+        return self.matrix[self.labels2index[index[0]], self.labels2index[index[1]]]
+
     def __setitem__(self, index, x):
-        self.matrix[self.labels[index[0]], self.labels[index[1]]] = x
+        u, v = self.labels2index[index[0]], self.labels2index[index[1]]
+        self.matrix[u, v] = x
+        self.matrix[v, u] = x
+
+    def adj(self, u):
+        """
+
+        Parameters
+        ----------
+        u
+
+        Returns
+        -------
+
+        >>> M = lil_matrix((4, 4))
+        >>> nodes = ['a', 'b', 'c', 'd']
+        >>> G = SimpleGraph(M, nodes)
+        >>> G['a', 'b'] = 1
+        >>> G['a', 'c'] = 1
+        >>> G.adj('a')
+        ['b', 'c']
+        >>> G.adj('d')
+        []
+
+        """
+        u = self.labels2index[u]
+
+        return [self.index2label[x] for x in np.flatnonzero(self.matrix[u, :].A[0])]
+
+    def get_edges(self):
+        """
+
+        Returns
+        -------
+
+        >>> M = lil_matrix((4,4))
+        >>> nodes = ['a', 'b', 'c', 'd']
+        >>> G = SimpleGraph(M, nodes)
+        >>> G['a', 'b'] = 1
+        >>> G['a', 'c'] = 1
+        >>> list(G.get_edges())
+        [('a', 'b', 1.0), ('a', 'c', 1.0)]
+
+        >>> G['a', 'c'] = 0
+        >>> list(G.get_edges())
+        [('a', 'b', 1.0)]
+
+        """
+        cx = triu(self.matrix, k=1, format='coo')
+        for i, j, v in zip(cx.row, cx.col, cx.data):
+            yield (self.index2label[i], self.index2label[j], v)
+
+    def get_degree(self):
+        """
+
+        Returns
+        -------
+        >>> M = lil_matrix((4,4))
+        >>> nodes = ['a', 'b', 'c', 'd']
+        >>> G = SimpleGraph(M, nodes)
+        >>> G['a', 'b'] = 1
+        >>> G['a', 'c'] = 1
+        >>> G.get_degree()
+        {'a': 2, 'c': 1, 'b': 1, 'd': 0}
+        """
+
+        # get degree of nodes
+        node_degree = self.matrix.astype(bool).sum(0).A[0]
+
+        # convert degree to dictionary
+        node_degree = dict([(self.index2label[x], node_degree[x]) for x in range(len(node_degree))])
+        return node_degree

@@ -700,6 +700,78 @@ class Scaffolds(object):
         return encoded_paths_list
 
     @logit
+    def join_paths_max_span_tree(self, confidence_score):
+        """
+        Uses the maximum spanning tree to identify paths to
+        merge
+
+        Args:
+            confidence_score:
+
+        Returns:
+
+        """
+
+        matrix = self.hic.matrix.copy()
+
+        matrix.data[matrix.data <= confidence_score] = 0
+        matrix.eliminate_zeros()
+        # get nodes that can be joined
+        flanks = []  # a node that is either the first or last in a path
+        singletons = []  # a node that has not been joined any other
+        for path in self.get_all_paths():
+            if len(path) == 1:
+                singletons.extend(path)
+            else:
+                flanks.extend([path[0], path[-1]])
+
+        edge_nodes = flanks + singletons
+        import networkx as nx
+        nxG = nx.Graph()
+        max_weight = matrix.data.max() + 1
+        matrix = matrix.tocoo()
+        for u, v, weight in zip(matrix.row, matrix.col, matrix.data):
+            if u == v:
+                continue
+            if u in edge_nodes and v in edge_nodes:
+                if u in self.contig_G[v]:
+                    # u and v are in same path
+                    nxG.add_edge(u, v, weight=max_weight)
+                else:
+                    nxG.add_edge(u, v, weight=weight)
+
+        # add edges between same path nodes
+        nlist = [node for node in nxG]
+        for node in nlist:
+            path = self.contig_G[node]
+            if node == 25:
+                print path
+            nxG.add_edge(path[0], path[-1], weight=max_weight)
+
+
+        # compute maximum spanning tree
+        nxG = nx.maximum_spanning_tree(nxG, weight='weight')
+
+        # check for nodes with degree > 2
+        node_degree = dict(zip(edge_nodes, nxG.degree(edge_nodes)))
+        for node, degree in sorted(node_degree.iteritems(), key=lambda (k,v): v, reverse=True):
+            if degree > 2:
+                # remove the weakest edges
+                adj = sorted(nxG.adj[node].iteritems(), key=lambda (k, v): v['weight'])
+                for adj_node, attr in adj[:-2]:
+                    nxG.remove_edge(node, adj_node)
+                    log.info("Removing edge {}-{}".format(node, adj_node))
+
+        # add paths
+        for u, v, data in nxG.edges(data=True):
+            if u in self.contig_G[v]:
+                # skip same path nodes
+                continue
+            else:
+                self.contig_G.add_edge(u, v, weight=data['weight'])
+
+
+    @logit
     def get_nearest_neighbors(self, confidence_score):
         """
         The algorithm works in two stages
@@ -752,11 +824,26 @@ class Scaffolds(object):
         ma.setdiag([0]*len(edge_nodes))
         G = SimpleGraph(ma, edge_nodes)
 
+        ## temp
+        import networkx as nx
+        nxG = nx.Graph()
+        for u,v,weight in G.get_edges():
+            nxG.add_edge(u,v, weight=weight)
+
+        nlist = [node for node in nxG]
+        for node in nlist:
+            path = self.contig_G[node]
+            if node == 25:
+                print path
+            nxG.add_edge(path[0], path[-1], weight=1e4)
+        nx.write_gml(nxG, "data/G_flanks.gml")
+        exit()
+        ## end temp
         # remove edge if edge_nodes are connected
         for path in self.get_all_paths():
             if len(path) == 2:
                 G[path[0], path[1]] = 0
-
+        # add path edges
         _join_degree_one_nodes()
 
         # try to solve hubs by using the bandwidth

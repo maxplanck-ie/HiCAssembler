@@ -46,7 +46,6 @@ def main(args):
     names_list = []
 
     assembl = HiCAssembler.HiCAssembler(ma)
-    #super_contigs = [[('2L:305900-611856(-)', '-'), ('2L:0-305840(+)', '+')], [('2L:920303-1234732(-)', '-'), ('2L:611916-920243(-)', '-')], [('X:529918-845891(+)', '+'), ('X:232641-529858(-)', '-'), ('X:111714-172055(+)', '-'), ('X:172057-186647(-)', '+'), ('X:187262-212208(+)', '-')], [('X:1152489-1460680(+)', '+'), ('X:845951-1152429(-)', '-')]]
     super_contigs, paths = assembl.assemble_contigs()
     super_check_list = []
     for s_contig in super_contigs:

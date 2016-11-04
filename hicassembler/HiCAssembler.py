@@ -161,7 +161,7 @@ class HiCAssembler:
 
         mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
 
-        self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'] * 1.5)
+        self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'])
         #self.scaffolds_graph.get_nearest_neighbors(stats[2]['median'] * 1.5)
         return self.get_contig_order()
         # turn sparse matrix into graph

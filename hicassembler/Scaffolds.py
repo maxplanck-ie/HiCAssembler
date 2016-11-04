@@ -591,14 +591,14 @@ class Scaffolds(object):
         """
         indices = sum(paths, [])
         ma = ma[indices, :][:, indices]
-
+        ma.setdiag(0)
         # mapping from 'indices' to new matrix id
         mapping = dict([(val, idx) for idx, val in enumerate(indices)])
         bw_value = []
         perm_list = []
 #        for perm in itertools.permutations(enc_indices):
         for perm in itertools.permutations(paths):
-            log.debug("testing permutation {}".format(perm))
+            #log.debug("testing permutation {}".format(perm))
             for expnd in Scaffolds.permute_paths(perm):
                 if expnd[::-1] in perm_list:
                     continue
@@ -606,6 +606,7 @@ class Scaffolds(object):
                 mapped_perm = [mapping[x] for x in expand_indices]
                 bw_value.append(Scaffolds.bw(ma[mapped_perm, :][:, mapped_perm]))
                 perm_list.append(expnd)
+                log.debug("bw value for {}={}".format(expnd, bw_value[-1]))
 
         min_val = min(bw_value)
         min_indx = bw_value.index(min_val)
@@ -616,7 +617,7 @@ class Scaffolds(object):
     def bw(ma):
         """
         Computes my version of the bandwidth of the matrix
-        which is defined as \sum_i\sum_{j=i} log(M(i,j)*(j-i))
+        which is defined as \sum_i\sum_{j=i} M(i,j)*(j-i)
         The matrix that minimizes this function should have
         higher values next to the main diagonal and
         decreasing values far from the main diagonal
@@ -700,15 +701,19 @@ class Scaffolds(object):
         return encoded_paths_list
 
     @logit
-    def join_paths_max_span_tree(self, confidence_score):
+    def join_paths_max_span_tree(self, confidence_score,
+                                 hub_solving_method=['remove weakest', 'bandwidth permute'][0]):
         """
         Uses the maximum spanning tree to identify paths to
         merge
 
-        Args:
-            confidence_score:
+        Parameters
+        ---------
+        confidence_score : Minimum contact treshold to consider. All other values are discarded
+        hub_solving_method : Either 'remove weakest' or 'bandwidth permutation'
 
-        Returns:
+        Returns
+        -------
 
         """
 
@@ -748,24 +753,135 @@ class Scaffolds(object):
                 print path
             nxG.add_edge(path[0], path[-1], weight=max_weight)
 
-
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
 
-        # check for nodes with degree > 2
-        node_degree = dict(zip(edge_nodes, nxG.degree(edge_nodes)))
-        for node, degree in sorted(node_degree.iteritems(), key=lambda (k,v): v, reverse=True):
-            if degree > 2:
-                # remove the weakest edges
-                adj = sorted(nxG.adj[node].iteritems(), key=lambda (k, v): v['weight'])
-                for adj_node, attr in adj[:-2]:
-                    nxG.remove_edge(node, adj_node)
-                    log.info("Removing edge {}-{}".format(node, adj_node))
+        if hub_solving_method == 'remove weakest':
+            self._remove_weakest(nxG, matrix)
+        else:
+            self._bandwidth_permute(nxG, matrix)
 
-        # add paths
-        for u, v, data in nxG.edges(data=True):
+    def _bandwidth_permute(self, G, matrix):
+        """
+        Based on the maximum spanning tree graph hubs are resolved using the
+        bandwidh permutation method.
+
+        Parameters
+        ----------
+        G : maximum spanning tree networkx graph
+        matrix :
+        Returns
+        -------
+
+        """
+        matrix = matrix.tocsr()
+        # 1. based on the resulting maximum spanning tree, add the new edges to
+        #    the paths graph unless any of the ndoes is a hub
+        for u, v, data in G.edges(data=True):
+            if G.degree(u) <=2 and G.degree(v) <=2:
+                if u in self.contig_G[v]:
+                    # skip same path nodes
+                    continue
+                else:
+                    self.contig_G.add_edge(u, v, weight=data['weight'])
+
+        # 2. Find nodes with degree > 2 and arrange them using the bandwidth permutation
+
+        solved_paths = []
+        seen = set()
+
+        # get the node degree from the source (but filtered) matrix.
+        node_degree = dict([(x, matrix[x,:].nnz) for x in range(matrix.shape[0])])
+
+        # define node degree threshold as the degree for the 80th percentile
+        node_degree_threshold = np.percentile(node_degree.values(), 80)
+        for node, degree in node_degree.iteritems():
+            if node in seen:
+                continue
+            if degree > 2:
+                paths_to_check = [self.contig_G[node]]
+                seen.update(self.contig_G[node])
+                for v in G.adj[node]:
+                    # only add paths that are not the same path
+                    # already added.
+                    if v not in self.contig_G[node]:
+                        paths_to_check.append(self.contig_G[v])
+                        seen.update(self.contig_G[v])
+
+                if len(paths_to_check) > 1:
+                    check = True
+                    for _path in paths_to_check:
+                        for _node in _path:
+                            if node_degree[_node] >= node_degree_threshold:
+                                log.debug("degree {}".format(node_degree[_node]))
+                                log.debug("{} in path {} is hub. Discarding {}".format(_node, _path, paths_to_check))
+                                check = False
+                                break
+                    if check is True:
+                        solved_paths.append(Scaffolds.find_best_permutation(self.hic.matrix, paths_to_check))
+
+        for s_path in solved_paths:
+            # add new edges to the paths graph
+            for index, path in enumerate(s_path[:-1]):
+                # s_path has the form: [1, 2, 3], [4, 5, 6], [7, 8] ...
+                # the for loops selects pairs as (3, 4), (6,7) as degest to add
+                u = path[-1]
+                v = s_path[index + 1][0]
+                self.contig_G.add_edge(u, v, weight=self.hic.matrix[u,v])
+
+    def _remove_weakest(self, G, matrix):
+        """
+        Based on the maximum spanning tree graph hubs are resolved by removing the
+        weakest links until only two edges are left
+
+        For a maximum spanning tree like this:
+
+        o---o---o---o---o---o--o
+                          \
+                           --o--o
+
+        The algorithm works as follows:
+
+        1. Sort the node degree in decreasing order
+        2. For each node with degree > 0 leave only the two edges with the highest
+           weight
+
+
+        Parameters
+        ----------
+        G : maximum spanning tree networkx graph
+
+        Returns
+        -------
+        None
+        """
+
+        node_degree_mst = dict(G.degree(G.node.keys()))
+        for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k,v): v, reverse=True):
+            if degree > 2:
+                # remove the weakest edges but only if either of the nodes is not a hub
+                adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
+                for adj_node, attr in adj[:-2]:
+                    log.info("Removing edge {}-{}".format(node, adj_node))
+                    G.remove_edge(node, adj_node)
+
+        # get the node degree from the source (but filtered) matrix.
+        matrix = matrix.tocsr()
+        degree = dict([(x, matrix[x,:].nnz) for x in range(matrix.shape[0])])
+
+        # define node degree threshold as the degree for the 80th percentile
+        degree_threshold = np.percentile(degree.values(), 80)
+
+        # based on the resulting maximum spanning tree, add the new edges to
+        # the paths graph.
+        for u, v, data in G.edges(data=True):
             if u in self.contig_G[v]:
                 # skip same path nodes
+                continue
+            if degree[u] >= degree_threshold or degree[v] >= degree_threshold:
+                # skip edges from hubs
+                log.debug("Edge not added because one of the nodes is a hub: {}:{}, {}:{}"
+                          "".format(u, degree[u], v, degree[v]))
                 continue
             else:
                 self.contig_G.add_edge(u, v, weight=data['weight'])
@@ -790,7 +906,7 @@ class Scaffolds(object):
         def _join_degree_one_nodes():
             # iterate by edge, joining those paths
             # that are unambiguous
-            _degree = G.get_degree()
+            _degree = G.degree()
             from hicassembler.PathGraph import PathGraphEdgeNotPossible, PathGraphException
             for u, v, weight in G.get_edges():
                 if _degree[u] == 1 and _degree[v] == 1:
@@ -847,7 +963,7 @@ class Scaffolds(object):
         _join_degree_one_nodes()
 
         # try to solve hubs by using the bandwidth
-        node_degree = G.get_degree()
+        node_degree = G.degree()
         seen = set()
         solved_paths = []
         hub_below_5 = set()
@@ -1186,7 +1302,7 @@ class SimpleGraph(object):
         for i, j, v in zip(cx.row, cx.col, cx.data):
             yield (self.index2label[i], self.index2label[j], v)
 
-    def get_degree(self):
+    def degree(self):
         """
 
         Returns
@@ -1196,7 +1312,7 @@ class SimpleGraph(object):
         >>> G = SimpleGraph(M, nodes)
         >>> G['a', 'b'] = 1
         >>> G['a', 'c'] = 1
-        >>> G.get_degree()
+        >>> G.degree()
         {'a': 2, 'c': 1, 'b': 1, 'd': 0}
         """
 

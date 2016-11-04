@@ -136,7 +136,7 @@ class HiCAssembler:
             prev_node_id = None
             scaffold = []
             for node in path:
-                contig_name = self.scaffolds_graph.contig_G.node[node]['name']
+                contig_name = self.scaffolds_graph.pg_base.node[node]['name']
                 if prev_contig_name is not None and contig_name != prev_contig_name:
                     scaffold.append((prev_contig_name, direction))
                 else:
@@ -162,7 +162,6 @@ class HiCAssembler:
         mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
 
         self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'])
-        #self.scaffolds_graph.get_nearest_neighbors(stats[2]['median'] * 1.5)
         return self.get_contig_order()
         # turn sparse matrix into graph
         self.scaffolds_graph.hic.diagflat(0)

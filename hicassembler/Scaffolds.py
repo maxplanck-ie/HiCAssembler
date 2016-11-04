@@ -337,8 +337,6 @@ class Scaffolds(object):
         self.contig_G = PathGraph()
         self._init_path_graph()
 
-        # TODO: remove debug line
-        self.hic.save("data/merged_bins_corrected.h5")
         return self.hic
 
     def get_flanks(self, path, flank_length, recursive_repetitions, counter=0):

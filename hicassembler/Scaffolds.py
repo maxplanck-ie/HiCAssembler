@@ -66,11 +66,9 @@ class Scaffolds(object):
         """
         # initialize the list of contigs as a graph with no edges
         self.hic = hic_matrix
-        self.matrix = None  # will contain the reduced matrix
+        self.matrix = self.hic.matrix.copy()  # will contain the reduced matrix
         self.pg_base = PathGraph()
-        self.pg_merge = PathGraph()
-        self.path_id = {}  # maps nodes to paths
-        self.split_contigs = None
+        self.pg_initial = None
 
         # initialize the contigs directed graph
         self._init_path_graph()
@@ -261,7 +259,7 @@ class Scaffolds(object):
 
         Examples
         --------
-        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
         ... ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
@@ -275,9 +273,11 @@ class Scaffolds(object):
         >>> len(S.pg_base.node)
         3
         >>> S.pg_base.node
-        {0: {'start': 0, 'length': 20, 'end': 20, 'name': 'c-0', 'coverage': 10.5}, \
-1: {'start': 20, 'length': 20, 'end': 40, 'name': 'c-0', 'coverage': 20.5}, \
-2: {'start': 40, 'length': 20, 'end': 60, 'name': 'c-0', 'coverage': 30.5}}
+        {0: {'start': 0, 'length': 20, 'end': 20, 'name': 'c-0', 'coverage': 1.5}, \
+1: {'start': 20, 'length': 20, 'end': 40, 'name': 'c-0', 'coverage': 1.0}, \
+2: {'start': 40, 'length': 20, 'end': 60, 'name': 'c-0', 'coverage': 1.0}}
+        >>> S.pg_base.path
+        {0: [0, 1, 2]}
 
         Because all cut_intervals refer to the same contig name 'c-0', a unique
         path with all the three bins is expected
@@ -291,9 +291,11 @@ class Scaffolds(object):
         >>> list(S.get_all_paths())
         [[0, 1, 2, 3, 4, 5]]
         >>> S.merge_to_size(target_length=20, reset_base_paths=False)
-        >>> S.pg_merge.node
-        {0: {'length': 20, 'base_path': [0, 1]}, \
-1: {'length': 20, 'base_path': [2, 3]}, 2: {'length': 20, 'base_path': [4, 5]}}
+        >>> S.pg_base.node[0]
+        {'length': 20, 'initial_path': [0, 1]}
+        >>> S.pg_base.node[1]
+        {'length': 20, 'initial_path': [2, 3]}
+
         """
         log.info("merge_to_size. flank_length: {}".format(target_length))
 
@@ -301,8 +303,9 @@ class Scaffolds(object):
         # This is in contrast to a list containing split_path that may
         # look like [ [[1,2],[3,4]], [[5,6]] ]
         paths_flatten = []
-
+        log.debug('value of reset paths is {}'.format(reset_base_paths))
         i = 0
+
         for path in self.get_all_paths():
             # split_path has the form [[0, 1], [2, 3], [4, 5]]
             # where each sub-list (e.g. [0,1]) has more or less the same size in bp
@@ -325,28 +328,21 @@ class Scaffolds(object):
             # reset_base_paths is used for the first merge_to_size when is irrelevant to
             # keep the original high resolution paths that form a contig. After this
             # merge, it is important to keep track of the original or base paths.
+
             merged_path = []
+            pg_merge = PathGraph()
             for sub_path in split_path:
                 # prepare new PathGraph nodes
-                if reset_base_paths is True:
-                    first_node = sub_path[0]
-                    last_node = sub_path[-1]
-                    attr = {'name': self.pg_base.node[first_node]['name'],
-                            'start': self.pg_base.node[first_node]['start'],
-                            'end': self.pg_base.node[last_node]['end'],
-                            'coverage': float(self.pg_base.node[first_node]['coverage'] +
-                                              self.pg_base.node[last_node]['end']) / 2}
-                    assert attr['start'] < attr['end']
-                    attr['length'] = attr['end'] - attr['start']
-                else:
-                    attr = {'length': sum([self.pg_base.node[x]['length'] for x in sub_path]),
-                            'base_path': sub_path}
+                attr = {'length': sum([self.pg_base.node[x]['length'] for x in sub_path]),
+                        'initial_path': sub_path}
 
-                self.pg_merge.add_node(i, attr_dict=attr)
+                pg_merge.add_node(i, attr_dict=attr)
+
                 merged_path.append(i)
+
                 i += 1
 
-            self.pg_merge.add_path(merged_path)
+            pg_merge.add_path(merged_path)
             paths_flatten.extend(split_path)
 
         if len(paths_flatten) == 0:
@@ -359,7 +355,7 @@ class Scaffolds(object):
             log.info("Reduce paths to small {}. Returning".format(len(reduce_paths)))
             return None
 
-        reduced_matrix = reduce_matrix(self.hic.matrix, reduce_paths, diagonal=True)
+        reduced_matrix = reduce_matrix(self.matrix, reduce_paths, diagonal=True)
 
         # correct reduced_matrix
         start_time = time.time()
@@ -370,9 +366,53 @@ class Scaffolds(object):
         # update matrix
         self.matrix = corrected_matrix
 
+        self.pg_initial = self.pg_base
+        self.pg_base = pg_merge
+
         if reset_base_paths is True:
-            self.pg_base = self.pg_merge
-            self.pg_merge = PathGraph()
+            self.reset_pg_initial()
+
+    def reset_pg_initial(self):
+        """
+        This is a function called to reduce the information stored from original paths
+        after merge_to_size is called for the firt time.
+
+        When contigs contains a lot of bins (e.g. when DpnII restriction enzyme was used)
+        after the initial merge_to_size, there is no need to keep the detailed
+        information of all the bins.
+
+        Returns
+        -------
+
+        """
+
+        if self.pg_initial is  None:
+            log.debug("can't reset. pg_initial is not set")
+            return
+
+        pg_base = PathGraph()
+        for path in self.get_all_paths():
+            for node in path:
+                base_attr = self.pg_base.node[node]
+                initial_path = base_attr['initial_path']
+                # prepare replacement for initial small nodes
+                first_node = initial_path[0]
+                last_node = initial_path[-1]
+                attr = {'name': self.pg_initial.node[first_node]['name'],
+                        'start': self.pg_initial.node[first_node]['start'],
+                        'end': self.pg_initial.node[last_node]['end'],
+                        'coverage': float(self.pg_initial.node[first_node]['coverage'] +
+                                          self.pg_initial.node[last_node]['coverage']) / 2}
+                assert attr['start'] < attr['end']
+                attr['length'] = attr['end'] - attr['start']
+
+                base_attr['initial_path'] = [node]
+                self.pg_base.add_node(node, attr_dict=base_attr)
+                pg_base.add_node(node, attr_dict=attr)
+            pg_base.add_path(path)
+
+        self.pg_base = pg_base
+        self.pg_initial = None
 
     def split_path(self, path, flank_length, recursive_repetitions, counter=0):
         """
@@ -559,7 +599,7 @@ class Scaffolds(object):
                 path_length.append(self.pg_base.node[n]['length'])
 
             # take upper triangle of matrix containing selected path
-            sub_m = triu(self.hic.matrix[path, :][:, path], k=1, format='coo')
+            sub_m = triu(self.matrix[path, :][:, path], k=1, format='coo')
             # find counts that are one bin apart, two bins apart etc.
             dist_list = sub_m.col - sub_m.row
             # tabulate all values that correspond
@@ -707,53 +747,91 @@ class Scaffolds(object):
             combinations.append(combination)
         return combinations
 
-    @staticmethod
-    def encode_fixed_paths(paths):
-        """
-        Parameters
-        ----------
-        paths: list of paths
-
-        Returns
-        -------
-        list of paths,
-        >>> Scaffolds.encode_fixed_paths([[1], [2,4], [3]])
-        [1, ',2,4', 3]
-
-        >>> Scaffolds.encode_fixed_paths([[1,2,3,4], [5,6], [7], [8,9]])
-        [',1,2,3,4', ',5,6', 7, ',8,9']
-
-        """
-        encoded_paths_list = []
-        for path in paths:
-            if len(path) > 1:
-                encoded_paths_list += [',' + ','.join([str(x) for x in path])]
-            else:
-                # add singleton
-                encoded_paths_list += path
-        return encoded_paths_list
-
     @logit
     def join_paths_max_span_tree(self, confidence_score,
-                                 hub_solving_method=['remove weakest', 'bandwidth permute'][1]):
+                                 hub_solving_method=['remove weakest', 'bandwidth permute'][0],
+                                 node_degree_threshold=None):
         """
         Uses the maximum spanning tree to identify paths to
         merge
 
         Parameters
         ---------
-        confidence_score : Minimum contact treshold to consider. All other values are discarded
+        confidence_score : Minimum contact threshold to consider. All other values are discarded
         hub_solving_method : Either 'remove weakest' or 'bandwidth permutation'
 
         Returns
         -------
 
+        Examples
+        --------
+
+        The following matrix is used:
+
+                      ______
+                     |      |
+                 a---b---c--d
+                      \    /
+                       --e--f
+
+        The maximum spanning tree is:
+
+                 a---b---c--d
+                      \
+                       --e--f
+
+
+        >>> cut_intervals = [('a', 0, 1, 1), ('b', 1, 2, 1), ('c', 2, 3, 1),
+        ... ('d', 0, 1, 1), ('e', 1, 2, 1), ('f', 0, 1, 1)]
+
+                                a  b  c  d  e  f
+        >>> matrix = np.array([[0, 3, 0, 0, 0, 0], # a
+        ...                    [0, 0, 3, 2, 2.5, 0], # b
+        ...                    [0, 0, 0, 3, 0, 0], # c
+        ...                    [0, 0, 0, 0, 1, 0], # d
+        ...                    [0, 0, 0, 0, 0, 3], # e
+        ...                    [0, 0, 0, 0, 0, 0]])# f
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
+        >>> S = Scaffolds(hic)
+        >>> list(S.get_all_paths())
+        [[0], [1], [2], [3], [4], [5]]
+
+        The weakest link for the hub 'b' (b-e) is removed
+        >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=5)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2, 3], [4, 5]]
+
+        >>> S = Scaffolds(hic)
+
+        By setting the node_degree threshold to 3 the
+        'b' node (id 1) is skipped.
+        Thus, the path [0, 1, 2, 3] can not be formed.
+        >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=3)
+        >>> list(S.get_all_paths())
+        [[0], [1], [2, 3], [4, 5]]
+
+
+        >>> S = Scaffolds(hic)
+        >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
+        ... node_degree_threshold=5)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2, 3, 4, 5]]
         """
 
-        matrix = self.hic.matrix.copy()
+        matrix = self.matrix.copy()
 
         matrix.data[matrix.data <= confidence_score] = 0
+        matrix.setdiag(0)
         matrix.eliminate_zeros()
+
+        # get the node degree from the source  matrix.
+        node_degree = dict([(x, matrix[x, :].nnz) for x in range(matrix.shape[0])])
+
+        # define node degree threshold as the degree for the 80th percentile
+        if node_degree_threshold is None:
+            node_degree_threshold = np.percentile(node_degree.values(), 90)
+
         # get nodes that can be joined
         flanks = []  # a node that is either the first or last in a path
         singletons = []  # a node that has not been joined any other
@@ -789,15 +867,23 @@ class Scaffolds(object):
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
 
-        if hub_solving_method == 'remove weakest':
-            self._remove_weakest(nxG, matrix)
-        else:
-            self._bandwidth_permute(nxG, matrix)
+        # remove from nxG nodes with degree > node_degree_threshold
+        # nodes with high degree are problematic
+        for node, degree in node_degree.iteritems():
+            if degree > node_degree_threshold:
+                nxG.remove_node(node)
 
-    def _bandwidth_permute(self, G, matrix):
+        self.matrix.eliminate_zeros()
+
+        if hub_solving_method == 'remove weakest':
+            self._remove_weakest(nxG)
+        else:
+            self._bandwidth_permute(nxG, node_degree, node_degree_threshold)
+
+    def _bandwidth_permute(self, G, node_degree, node_degree_threshold):
         """
         Based on the maximum spanning tree graph hubs are resolved using the
-        bandwidh permutation method.
+        bandwidth permutation method.
 
         Parameters
         ----------
@@ -807,27 +893,30 @@ class Scaffolds(object):
         -------
 
         """
-        matrix = matrix.tocsr()
+
+        is_hub = set()
         # 1. based on the resulting maximum spanning tree, add the new edges to
-        #    the paths graph unless any of the ndoes is a hub
+        #    the paths graph unless any of the nodes is a hub
         for u, v, data in G.edges(data=True):
-            if G.degree(u) <=2 and G.degree(v) <=2:
+            edge_has_hub = False
+            for node in [u, v]:
+                if G.degree(node) > 2:
+                    is_hub.add(node)
+                    edge_has_hub = True
+            if edge_has_hub is False:
                 if u in self.pg_base[v]:
                     # skip same path nodes
                     continue
                 else:
                     self.pg_base.add_edge(u, v, weight=data['weight'])
 
-        # 2. Find nodes with degree > 2 and arrange them using the bandwidth permutation
+        if len(is_hub) == 0:
+            return
 
+        # 2. Find nodes with degree > 2 and arrange them using the bandwidth permutation
         solved_paths = []
         seen = set()
 
-        # get the node degree from the source (but filtered) matrix.
-        node_degree = dict([(x, matrix[x,:].nnz) for x in range(matrix.shape[0])])
-
-        # define node degree threshold as the degree for the 80th percentile
-        node_degree_threshold = np.percentile(node_degree.values(), 90)
         for node, degree in node_degree.iteritems():
             if node in seen:
                 continue
@@ -841,6 +930,7 @@ class Scaffolds(object):
                         paths_to_check.append(self.pg_base[v])
                         seen.update(self.pg_base[v])
 
+                # check, that the paths_tho_check do not contain hubs
                 if len(paths_to_check) > 1:
                     check = True
                     for _path in paths_to_check:
@@ -851,8 +941,8 @@ class Scaffolds(object):
                                 check = False
                                 break
                     if check is True:
-                        solved_paths.append(Scaffolds.find_best_permutation(self.hic.matrix, paths_to_check))
-
+                        solved_paths.append(Scaffolds.find_best_permutation(self.matrix, paths_to_check))
+                        log.debug("best permutation: {}".format(solved_paths[-1]))
         for s_path in solved_paths:
             # add new edges to the paths graph
             for index, path in enumerate(s_path[:-1]):
@@ -860,9 +950,9 @@ class Scaffolds(object):
                 # the for loops selects pairs as (3, 4), (6,7) as degest to add
                 u = path[-1]
                 v = s_path[index + 1][0]
-                self.pg_base.add_edge(u, v, weight=self.hic.matrix[u, v])
+                self.pg_base.add_edge(u, v, weight=self.matrix[u, v])
 
-    def _remove_weakest(self, G, matrix):
+    def _remove_weakest(self, G):
         """
         Based on the maximum spanning tree graph hubs are resolved by removing the
         weakest links until only two edges are left
@@ -888,33 +978,22 @@ class Scaffolds(object):
         -------
         None
         """
-
         node_degree_mst = dict(G.degree(G.node.keys()))
         for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k,v): v, reverse=True):
             if degree > 2:
-                # remove the weakest edges but only if either of the nodes is not a hub
                 adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
+                # remove the weakest edges but only if either of the nodes is not a hub
                 for adj_node, attr in adj[:-2]:
-                    log.info("Removing edge {}-{}".format(node, adj_node))
+                    log.info("Removing weak edge {}-{} weight: {}".format(node, adj_node, attr['weight']))
                     G.remove_edge(node, adj_node)
-
-        # get the node degree from the source (but filtered) matrix.
-        matrix = matrix.tocsr()
-        degree = dict([(x, matrix[x,:].nnz) for x in range(matrix.shape[0])])
-
-        # define node degree threshold as the degree for the 80th percentile
-        degree_threshold = np.percentile(degree.values(), 90)
+            if degree <= 2:
+                break
 
         # based on the resulting maximum spanning tree, add the new edges to
         # the paths graph.
         for u, v, data in G.edges(data=True):
             if u in self.pg_base[v]:
                 # skip same path nodes
-                continue
-            if degree[u] >= degree_threshold or degree[v] >= degree_threshold:
-                # skip edges from hubs
-                log.debug("Edge not added because one of the nodes is a hub (threshold: {}): {}:{}, {}:{}"
-                          "".format(degree_threshold, u, degree[u], v, degree[v]))
                 continue
             else:
                 self.pg_base.add_edge(u, v, weight=data['weight'])
@@ -951,7 +1030,7 @@ class Scaffolds(object):
                     G[u, v] = 0
                 # TODO: some singletons with degree two could be  also joined
 
-        matrix = self.hic.matrix.copy()
+        matrix = self.matrix.copy()
 
         matrix.data[matrix.data <= confidence_score] = 0
         matrix.eliminate_zeros()
@@ -1026,7 +1105,7 @@ class Scaffolds(object):
                             check = False
                             break
                 if check is True:
-                    solved_paths.append(Scaffolds.find_best_permutation(self.hic.matrix, fixed_paths))
+                    solved_paths.append(Scaffolds.find_best_permutation(self.matrix, fixed_paths))
 
         for s_path in solved_paths:
             for index, path in enumerate(s_path[:-1]):
@@ -1247,16 +1326,17 @@ class Scaffolds(object):
         nx.write_gml(self.pg_base, file_name)
 
 
-def get_test_matrix(cut_intervals=None):
+def get_test_matrix(cut_intervals=None, matrix=None):
     hic = HiCMatrix.hiCMatrix()
     hic.nan_bins = []
-    matrix = np.array([
-    [ 1,  8,  5, 3, 0, 8],
-    [ 0,  4, 15, 5, 1, 7],
-    [ 0,  0,  0, 7, 2, 8],
-    [ 0,  0,  0, 0, 1, 5],
-    [ 0,  0,  0, 0, 0, 6],
-    [ 0,  0,  0, 0, 0, 0]])
+    if matrix is None:
+        matrix = np.array([
+                          [1,  8,  5, 3, 0, 8],
+                          [0,  4, 15, 5, 1, 7],
+                          [0,  0,  0, 7, 2, 8],
+                          [0,  0,  0, 0, 1, 5],
+                          [0,  0,  0, 0, 0, 6],
+                          [0,  0,  0, 0, 0, 0]])
 
     # make matrix symmetric
     matrix = csr_matrix(matrix + matrix.T)

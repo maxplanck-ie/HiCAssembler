@@ -807,16 +807,24 @@ class Scaffolds(object):
         By setting the node_degree threshold to 3 the
         'b' node (id 1) is skipped.
         Thus, the path [0, 1, 2, 3] can not be formed.
+        but the path [2, 3, 4, 5] is formed
         >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=3)
         >>> list(S.get_all_paths())
-        [[0], [1], [2, 3], [4, 5]]
+        [[0], [1], [2, 3, 4, 5]]
 
 
+        Test bandwidh permutation
         >>> S = Scaffolds(hic)
         >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
         ... node_degree_threshold=5)
         >>> list(S.get_all_paths())
         [[0, 1, 2, 3, 4, 5]]
+
+        >>> S = Scaffolds(hic)
+        >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
+        ... node_degree_threshold=4)
+        >>> list(S.get_all_paths())
+
         """
 
         matrix = self.matrix.copy()
@@ -831,6 +839,23 @@ class Scaffolds(object):
         # define node degree threshold as the degree for the 80th percentile
         if node_degree_threshold is None:
             node_degree_threshold = np.percentile(node_degree.values(), 90)
+
+        # remove from nxG nodes with degree > node_degree_threshold
+        # nodes with high degree are problematic
+        for node, degree in node_degree.iteritems():
+            if degree > node_degree_threshold:
+                # unset the rows and cols of hubs
+                # this is done in `matrix` as well
+                # as self.matrix because the self.matrix
+                # is used for permutation and must not contain
+                # the hub data.
+                self.matrix[node, :] = 0
+                self.matrix[:, node] = 0
+                matrix[node, :] = 0
+                matrix[:, node] = 0
+
+        matrix.eliminate_zeros()
+        self.matrix.eliminate_zeros()
 
         # get nodes that can be joined
         flanks = []  # a node that is either the first or last in a path
@@ -866,14 +891,6 @@ class Scaffolds(object):
 
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
-
-        # remove from nxG nodes with degree > node_degree_threshold
-        # nodes with high degree are problematic
-        for node, degree in node_degree.iteritems():
-            if degree > node_degree_threshold:
-                nxG.remove_node(node)
-
-        self.matrix.eliminate_zeros()
 
         if hub_solving_method == 'remove weakest':
             self._remove_weakest(nxG)

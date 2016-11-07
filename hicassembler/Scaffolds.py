@@ -284,17 +284,21 @@ class Scaffolds(object):
         >>> list(S.get_all_paths())
         [[0, 1, 2]]
 
+        Test with two contigs and reset_base_paths
         >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
-        ... ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
+        ... ('c-0', 30, 40, 1), ('c-1', 40, 50, 1), ('c-1', 50, 60, 1)]
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
         >>> list(S.get_all_paths())
-        [[0, 1, 2, 3, 4, 5]]
+        [[0, 1, 2, 3], [4, 5]]
         >>> S.merge_to_size(target_length=20, reset_base_paths=False)
+        >>> list(S.get_all_paths())
+        [[0, 1], [2, 3]]
+
         >>> S.pg_base.node[0]
         {'length': 20, 'initial_path': [0, 1]}
-        >>> S.pg_base.node[1]
-        {'length': 20, 'initial_path': [2, 3]}
+        >>> S.pg_base.node[2]
+        {'length': 10, 'initial_path': [4]}
 
         """
         log.info("merge_to_size. flank_length: {}".format(target_length))
@@ -305,6 +309,8 @@ class Scaffolds(object):
         paths_flatten = []
         log.debug('value of reset paths is {}'.format(reset_base_paths))
         i = 0
+
+        pg_merge = PathGraph()
 
         for path in self.get_all_paths():
             # split_path has the form [[0, 1], [2, 3], [4, 5]]
@@ -330,7 +336,6 @@ class Scaffolds(object):
             # merge, it is important to keep track of the original or base paths.
 
             merged_path = []
-            pg_merge = PathGraph()
             for sub_path in split_path:
                 # prepare new PathGraph nodes
                 attr = {'length': sum([self.pg_base.node[x]['length'] for x in sub_path]),
@@ -371,6 +376,8 @@ class Scaffolds(object):
 
         if reset_base_paths is True:
             self.reset_pg_initial()
+
+        assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
 
     def reset_pg_initial(self):
         """
@@ -679,7 +686,6 @@ class Scaffolds(object):
                 mapped_perm = [mapping[x] for x in expand_indices]
                 bw_value.append(Scaffolds.bw(ma[mapped_perm, :][:, mapped_perm]))
                 perm_list.append(expnd)
-                log.debug("bw value for {}={}".format(expnd, bw_value[-1]))
 
         min_val = min(bw_value)
         min_indx = bw_value.index(min_val)
@@ -808,7 +814,8 @@ class Scaffolds(object):
         'b' node (id 1) is skipped.
         Thus, the path [0, 1, 2, 3] can not be formed.
         but the path [2, 3, 4, 5] is formed
-        >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=3)
+        >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest',
+        ...                            node_degree_threshold=4)
         >>> list(S.get_all_paths())
         [[0], [1], [2, 3, 4, 5]]
 
@@ -824,6 +831,7 @@ class Scaffolds(object):
         >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
         ... node_degree_threshold=4)
         >>> list(S.get_all_paths())
+        [[0], [1], [2, 3, 4, 5]]
 
         """
 
@@ -843,12 +851,13 @@ class Scaffolds(object):
         # remove from nxG nodes with degree > node_degree_threshold
         # nodes with high degree are problematic
         for node, degree in node_degree.iteritems():
-            if degree > node_degree_threshold:
+            if degree >= node_degree_threshold:
                 # unset the rows and cols of hubs
                 # this is done in `matrix` as well
                 # as self.matrix because the self.matrix
                 # is used for permutation and must not contain
                 # the hub data.
+                log.debug("removing hub node {}".format(node))
                 self.matrix[node, :] = 0
                 self.matrix[:, node] = 0
                 matrix[node, :] = 0
@@ -895,6 +904,7 @@ class Scaffolds(object):
         if hub_solving_method == 'remove weakest':
             self._remove_weakest(nxG)
         else:
+            log.debug("egree: {}".format(node_degree))
             self._bandwidth_permute(nxG, node_degree, node_degree_threshold)
 
     def _bandwidth_permute(self, G, node_degree, node_degree_threshold):
@@ -934,7 +944,8 @@ class Scaffolds(object):
         solved_paths = []
         seen = set()
 
-        for node, degree in node_degree.iteritems():
+        node_degree_mst = dict(G.degree(G.node.keys()))
+        for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k,v): v, reverse=True):
             if node in seen:
                 continue
             if degree > 2:
@@ -950,6 +961,7 @@ class Scaffolds(object):
                 # check, that the paths_tho_check do not contain hubs
                 if len(paths_to_check) > 1:
                     check = True
+                    """
                     for _path in paths_to_check:
                         for _node in _path:
                             if node_degree[_node] >= node_degree_threshold:
@@ -958,8 +970,14 @@ class Scaffolds(object):
                                 check = False
                                 break
                     if check is True:
-                        solved_paths.append(Scaffolds.find_best_permutation(self.matrix, paths_to_check))
-                        log.debug("best permutation: {}".format(solved_paths[-1]))
+                        pass
+                    else:
+                        import ipdb;ipdb.set_trace()
+                    """
+
+                    solved_paths.append(Scaffolds.find_best_permutation(self.matrix, paths_to_check))
+                    log.debug("best permutation: {}".format(solved_paths[-1]))
+
         for s_path in solved_paths:
             # add new edges to the paths graph
             for index, path in enumerate(s_path[:-1]):

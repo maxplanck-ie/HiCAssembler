@@ -3,7 +3,8 @@ from scipy.sparse import csr_matrix, lil_matrix, triu
 import logging
 import time
 import hicexplorer.HiCMatrix as HiCMatrix
-from hicassembler.PathGraph import PathGraph
+from hicassembler.PathGraph import PathGraph, PathGraphEdgeNotPossible, PathGraphException
+
 from hicassembler.HiCAssembler import HiCAssemblerException
 from hicexplorer.reduceMatrix import reduce_matrix
 from hicexplorer.iterativeCorrection import iterativeCorrection
@@ -299,7 +300,8 @@ class Scaffolds(object):
         {'length': 20, 'initial_path': [0, 1]}
         >>> S.pg_base.node[2]
         {'length': 10, 'initial_path': [4]}
-
+        >>> S.pg_initial.node[0]
+        {'start': 0, 'length': 10, 'end': 10, 'name': 'c-0', 'coverage': 1}
         """
         log.info("merge_to_size. flank_length: {}".format(target_length))
 
@@ -935,7 +937,7 @@ class Scaffolds(object):
                     # skip same path nodes
                     continue
                 else:
-                    self.pg_base.add_edge(u, v, weight=data['weight'])
+                    self.add_edge(u, v, weight=data['weight'])
 
         if len(is_hub) == 0:
             return
@@ -985,7 +987,7 @@ class Scaffolds(object):
                 # the for loops selects pairs as (3, 4), (6,7) as degest to add
                 u = path[-1]
                 v = s_path[index + 1][0]
-                self.pg_base.add_edge(u, v, weight=self.matrix[u, v])
+                self.add_edge(u, v, weight=self.matrix[u, v])
 
     def _remove_weakest(self, G):
         """
@@ -1031,7 +1033,75 @@ class Scaffolds(object):
                 # skip same path nodes
                 continue
             else:
-                self.pg_base.add_edge(u, v, weight=data['weight'])
+                self.add_edge(u, v, weight=data['weight'])
+
+    def add_edge(self, u, v, weight=None):
+        """
+        Adds and edge both in the reduced PathGraph (pg_base) and in the
+        initial (non reduced) PathGraph.
+        Parameters
+        ----------
+        u node index
+        v node index
+        weight weight
+
+        Returns
+        -------
+
+        Examples
+        --------
+
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
+        ... ('c-0', 30, 40, 1), ('c-1', 40, 50, 1), ('c-1', 50, 60, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+
+        >>> S.pg_base.path.values()
+        [[0, 1, 2, 3], [4, 5]]
+
+        >>> S.add_edge(3, 4, weight=10)
+        >>> S.pg_base.path.values()
+        [[0, 1, 2, 3, 4, 5]]
+        >>> S.pg_initial is None
+        True
+
+        Test case with merged bins
+        >>> S = Scaffolds(hic)
+        >>> S.merge_to_size(target_length=20, reset_base_paths=False)
+
+        >>> S.pg_base.path.values()
+        [[0, 1], [2, 3]]
+        >>> S.pg_initial.path.values()
+        [[0, 1, 2, 3], [4, 5]]
+
+        >>> S.add_edge(1, 2, weight=10)
+        >>> S.pg_base.path.values()
+        [[0, 1, 2, 3]]
+
+        >>> S.pg_initial.path.values()
+        [[0, 1, 2, 3, 4, 5]]
+        """
+        if self.pg_initial is not None:
+            # get the initial nodes that should be merged
+            initial_path_u = self.pg_base.node[u]['initial_path']
+            initial_path_v = self.pg_base.node[v]['initial_path']
+
+            for index_u, index_v in [(0, 0), (0, -1), (-1, 0), (0, 0)]:
+                # try all four combinations to join the `initial_path_u` and `initial_path_v`
+                # For example, for [c, d, e], [x, y, z], the attempt is to
+                # try to join (c, x), (c, z), (e, x), (e, z)
+                # Because c, can be part of the larger path [a, b, c, d, e], any edge
+                # containing 'e' can note be made and  the exception is raised.
+                try:
+                   self.pg_initial.add_edge(initial_path_u[index_u], initial_path_v[index_v], weight=weight)
+                   self.pg_base.add_edge(u, v, weight=weight)
+                   break
+                except PathGraphEdgeNotPossible:
+                    pass
+
+
+        else:
+           self.pg_base.add_edge(u, v, weight=weight)
 
 
     @logit
@@ -1054,7 +1124,6 @@ class Scaffolds(object):
             # iterate by edge, joining those paths
             # that are unambiguous
             _degree = G.degree()
-            from hicassembler.PathGraph import PathGraphEdgeNotPossible, PathGraphException
             for u, v, weight in G.get_edges():
                 if _degree[u] == 1 and _degree[v] == 1:
                     try:

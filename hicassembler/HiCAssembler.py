@@ -104,12 +104,7 @@ class HiCAssembler:
 
         # compute initial N50
         self.N50 = []
-        self.N50.append(self.scaffolds_graph.compute_N50())
 
-        # the matrix may be of higher resolution than needed.
-        # For example, if dpnII RE was used the bins could be
-        # merged.
-        self.scaffolds_graph.merge_to_size(target_length=float(self.N50[-1])/2)
         #self.matrix = hic.matrix.copy()
         #self.matrix.eliminate_zeros()
 
@@ -158,11 +153,25 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.matrix.shape[0]))
+        for iteration in range(2):
+            n50 = self.scaffolds_graph.compute_N50()
+            self.N50.append(n50)
 
-        mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
+            # remove bins that are 1/3 the N50
+            self.scaffolds_graph.remove_bins_by_size(n50 * 0.05)
+            # the matrix may be of higher resolution than needed.
+            # For example, if dpnII RE was used the bins could be
+            # merged.
+            reset_base_paths = True if iteration == 0 else False
+            self.scaffolds_graph.merge_to_size(target_length=float(n50)/3, reset_base_paths=reset_base_paths)
 
-        self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'])
-        return self.get_contig_order()
+            mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
+            self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'])
+            return self.get_contig_order()
+
+            import ipdb;ipdb.set_trace()
+
+
         # turn sparse matrix into graph
         self.scaffolds_graph.hic.diagflat(0)
         mat = self.scaffolds_graph.hic.matrix.copy()

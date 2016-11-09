@@ -366,7 +366,7 @@ class Scaffolds(object):
 
         # correct reduced_matrix
         start_time = time.time()
-        corrected_matrix = iterativeCorrection(reduced_matrix, M=1000, verbose=True)[0]
+        corrected_matrix = iterativeCorrection(reduced_matrix, M=1000, verbose=False)[0]
         elapsed_time = time.time() - start_time
         log.debug("time iterative_correction: {:.5f}".format(elapsed_time))
 
@@ -623,7 +623,7 @@ class Scaffolds(object):
         # get mean and sd of the bin lengths
         mean_path_length = np.mean(path_length)
         sd_path_length = np.std(path_length)
-        log.info("Mean path length: {} sd{}".format(mean_path_length, sd_path_length))
+        log.info("Mean path length: {:.1f} sd: {:.1f}".format(mean_path_length, sd_path_length))
 
         # consolidate data:
         consolidated_dist_value = dict()

@@ -70,7 +70,10 @@ def main(args):
         if check_list[0][0] > check_list[-1][-1]:
             check_list = [x[::-1] for x in check_list][::-1]
         if sorted(sum(check_list,[])) != sum(check_list, []):
-            log.warn("Problem with {}".format(check_list))
+            formatted_paths = []
+            for c_path in check_list:
+                formatted_paths.append(["{:,}".format(x) for x in c_path])
+            log.warn("Problem with {}".format(formatted_paths))
         super_check_list.append(check_list)
     import ipdb;ipdb.set_trace()
 

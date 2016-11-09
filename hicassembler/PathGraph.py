@@ -328,7 +328,7 @@ class PathGraph(object):
             # check if the nodes are flanking a path
             path[node] = self[node]
             if node not in [path[node][0], path[node][-1]]:
-                message = "Can't add edge {}-{}. Node {} does not exists ".format(u, v, node)
+                message = "Can't add edge {}-{}. Node {} does not flank its path {} ".format(u, v, node, path[node])
                 raise PathGraphEdgeNotPossible(message)
 
         # check that nodes are not already in the same path

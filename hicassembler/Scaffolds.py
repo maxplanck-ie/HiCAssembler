@@ -759,7 +759,7 @@ class Scaffolds(object):
     def join_paths_max_span_tree(self, confidence_score,
                                  hub_solving_method=['remove weakest', 'bandwidth permute'][0],
                                  node_degree_threshold=None):
-        """
+        r"""
         Uses the maximum spanning tree to identify paths to
         merge
 
@@ -776,17 +776,17 @@ class Scaffolds(object):
 
         The following matrix is used:
 
-                      ______
-                     |      |
-                 a---b---c--d
-                      \    /
-                       --e--f
+                     ╭───────╮
+                     │       │
+                 a───b───c───d
+                     │   ╭───╯
+                     ╰───e───f
 
         The maximum spanning tree is:
 
-                 a---b---c--d
-                      \
-                       --e--f
+                 a───b───c───d
+                     │
+                     ╰───e───f
 
 
         >>> cut_intervals = [('a', 0, 1, 1), ('b', 1, 2, 1), ('c', 2, 3, 1),
@@ -848,7 +848,7 @@ class Scaffolds(object):
 
         # define node degree threshold as the degree for the 80th percentile
         if node_degree_threshold is None:
-            node_degree_threshold = np.percentile(node_degree.values(), 90)
+            node_degree_threshold = np.percentile(node_degree.values(), 95)
 
         # remove from nxG nodes with degree > node_degree_threshold
         # nodes with high degree are problematic
@@ -971,14 +971,10 @@ class Scaffolds(object):
                                 log.debug("{} in path {} is hub. Discarding {}".format(_node, _path, paths_to_check))
                                 check = False
                                 break
-                    if check is True:
-                        pass
-                    else:
-                        import ipdb;ipdb.set_trace()
                     """
-
-                    solved_paths.append(Scaffolds.find_best_permutation(self.matrix, paths_to_check))
-                    log.debug("best permutation: {}".format(solved_paths[-1]))
+                    if check is True:
+                        solved_paths.append(Scaffolds.find_best_permutation(self.matrix, paths_to_check))
+                        log.debug("best permutation: {}".format(solved_paths[-1]))
 
         for s_path in solved_paths:
             # add new edges to the paths graph

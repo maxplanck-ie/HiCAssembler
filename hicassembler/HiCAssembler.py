@@ -167,7 +167,7 @@ class HiCAssembler:
 
             mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
             self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'])
-            return self.get_contig_order()
+#            return self.get_contig_order()
 
             import ipdb;ipdb.set_trace()
 

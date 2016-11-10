@@ -1,3 +1,4 @@
+# coding=utf-8
 import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix, triu
 import logging
@@ -189,8 +190,11 @@ class Scaffolds(object):
                 to_keep.extend(path)
 
         if len(to_keep):
+            # TODO
+            # instead of init the path graph again, delete the paths
+            # that are not needed and rebuild the index
             new_matrix = self.hic.matrix[to_keep, :][:, to_keep]
-            new_cut_intervals = [self.hic.cut_intervals[x] for x in to_keep]
+            #new_cut_intervals = [self.hic.cut_intervals[x] for x in to_keep]
             self.hic.update_matrix(new_matrix, new_cut_intervals)
             self.pg_base = PathGraph()
             self._init_path_graph()
@@ -527,7 +531,7 @@ class Scaffolds(object):
                     flanks.extend([left_flank, right_flank])
                 else:
                     flanks.extend([path])
-                    log.debug("is small and has no flanks".format(path, path_length_sum))
+                    log.debug("Path {} is small (length: {}) and has no flanks".format(path, path_length_sum))
             else:
                 left_flank = _get_path_flank(path)
                 right_flank = _get_path_flank(path[::-1])[::-1]

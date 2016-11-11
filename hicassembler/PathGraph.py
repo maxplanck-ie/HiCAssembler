@@ -179,7 +179,7 @@ class PathGraph(object):
 
             self.path_id[n] = path_id
 
-    def add_path(self, nodes, attr_dict=None, **attr):
+    def add_path(self, nodes, name=None, attr_dict=None, **attr):
         """Add a path consisting of the ordered nodes
 
         Parameters
@@ -200,9 +200,11 @@ class PathGraph(object):
         Examples
         --------
         >>> S = PathGraph()
-        >>> S.add_path([0,1,2,3])
+        >>> S.add_path([0,1,2,3], name='path_1')
         >>> S[1]
         [0, 1, 2, 3]
+        >>> S.path
+        {'path_1': [0, 1, 2, 3]}
 
         >>> S.add_path(['c1', 'c1', 'c2'])
         Traceback (most recent call last):
@@ -214,6 +216,9 @@ class PathGraph(object):
         >>> S.adj[1]
         {0: {'weight': 1000}, 2: {'weight': 1000}}
         """
+        if len(nodes) == 0:
+            raise PathGraphException("The path is empty")
+
         if attr_dict is None:
             attr_dict = attr
         else:
@@ -233,13 +238,17 @@ class PathGraph(object):
         if len(nodes) != len(seen):
             raise PathGraphException("Path contains repeated elements. Can't add path")
 
-        # get a new path_id
-        path_id = len(self.path)
-        if path_id in self.path:
-            for index in range(len(self.path) + 1):
-                if index not in self.path:
-                    path_id = index
+        if name is not None and name not in self.path:
+            path_id = name
+        else:
+            # get a new path_id
+            path_id = len(self.path)
+            if path_id in self.path:
+                for index in range(len(self.path) + 1):
+                    if index not in self.path:
+                        path_id = index
                     break
+
         assert path_id not in self.path, "*Error*, path_id already in path"
         self.path[path_id] = nodes
 
@@ -256,7 +265,26 @@ class PathGraph(object):
             self.adj[u][v] = datadict
             self.adj[v][u] = datadict
 
-    def add_edge(self, u, v, attr_dict=None, **attr):
+    def get_path_name_of_node(self, node):
+        """
+        Returns the path name of the node
+        Parameters
+        ----------
+        node
+
+        Returns
+        -------
+        string path name of the node
+
+        """
+
+        if node in self.path_id:
+            name = self.path_id[node]
+        else:
+            name = node
+        return name
+
+    def add_edge(self, u, v, name=None, attr_dict=None, **attr):
         """
         Given a node u and a node v, this function appends and edge between u and v.
         Importantly, the function checks that this operation is possible. If u is
@@ -296,12 +324,16 @@ class PathGraph(object):
 
         # check that first path is inverted
         >>> S = PathGraph()
-        >>> S.add_path([2, 1,0])
-        >>> S.add_path([3, 4, 5], weight=3)
+        >>> S.add_path([2, 1,0], name='a')
+        >>> S.add_path([3, 4, 5], name='b', weight=3)
+        >>> S.path == {'a': [2, 1, 0], 'b': [3, 4, 5]}
+        True
         >>> S.add_edge(2,3, weight=10)
         >>> S[4]
         [0, 1, 2, 3, 4, 5]
 
+        >>> S.path == {'a, b': [0, 1, 2, 3, 4, 5]}
+        True
         >>> S.adj[3]
         {2: {'weight': 10}, 4: {'weight': 3}}
 
@@ -352,11 +384,21 @@ class PathGraph(object):
         if len(path[v]) and path[v][-1] == v:
             path[v] = path[v][::-1]
 
+        if name is None:
+            # get as name for the new path, a combination
+            # of the merged paths names
+            new_name = []
+            for node in [u, v]:
+                new_name.append(self.get_path_name_of_node(node))
+            new_name = ", ".join(map(str, new_name))
+        else:
+            new_name = None
+
         # remove previous path and add new path
         for node in [u, v]:
             self.delete_path_containing_node(node)
 
-        self.add_path(path[u] + path[v])
+        self.add_path(path[u] + path[v], name=new_name)
         datadict = self.adj[u].get(v, {})
         datadict.update(attr_dict)
         self.adj[u][v] = datadict

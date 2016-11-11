@@ -74,7 +74,19 @@ class TestClass:
         print S.pg_initial.path
         assert S.pg_initial.path == {'c-3': [0], 'c-0': [1, 2, 3], 'c-2': [4, 5]}
 
+    def test_reset_pg_initial(self):
 
+        cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
+                         ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
+        hic = get_test_matrix(cut_intervals=cut_intervals)
+        S = Scaffolds(hic)
+        assert S.pg_base.path == {'c-0': [0, 1, 2, 3, 4, 5]}
+
+        S.merge_to_size(target_length=20, reset_base_paths=True)
+        # the path name is the same but contains fewer nodes
+        assert S.pg_base.path == {'c-0': [0, 1, 2]}
+        # the node names are the merge of the original start and end positions
+        assert S.pg_base.node[2] == {'start': 40, 'length': 20, 'end': 60, 'name': 'c-0', 'coverage': 1.0}
 
 def get_test_matrix(cut_intervals=None, matrix=None):
     hic = HiCMatrix.hiCMatrix()

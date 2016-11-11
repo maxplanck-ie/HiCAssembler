@@ -298,26 +298,24 @@ class Scaffolds(object):
         ... ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
-        >>> list(S.get_all_paths())
-        [[0, 1, 2, 3, 4, 5]]
-        >>> S.merge_to_size(target_length=20)
+        >>> S.pg_base.path == {'c-0': [0, 1, 2, 3, 4, 5]}
+        True
+        >>> S.merge_to_size(target_length=20, reset_base_paths=True)
         >>> S.matrix.todense()
         matrix([[ 11.26259299,  21.9378206 ,  17.42795074],
                 [ 21.9378206 ,   6.86756935,  21.82307214],
                 [ 17.42795074,  21.82307214,  11.37726956]])
+
+        Now the 'c-0' contig path is shorter
+        >>> S.pg_base.path == {'c-0': [0, 1, 2]}
+        True
         >>> len(S.pg_base.node)
         3
         >>> S.pg_base.node
         {0: {'start': 0, 'length': 20, 'end': 20, 'name': 'c-0', 'coverage': 1.5}, \
 1: {'start': 20, 'length': 20, 'end': 40, 'name': 'c-0', 'coverage': 1.0}, \
 2: {'start': 40, 'length': 20, 'end': 60, 'name': 'c-0', 'coverage': 1.0}}
-        >>> S.pg_base.path
-        {0: [0, 1, 2]}
 
-        Because all cut_intervals refer to the same contig name 'c-0', a unique
-        path with all the three bins is expected
-        >>> list(S.get_all_paths())
-        [[0, 1, 2]]
 
         """
         log.info("merge_to_size. flank_length: {}".format(target_length))
@@ -420,6 +418,7 @@ class Scaffolds(object):
 
         pg_base = PathGraph()
         for path in self.get_all_paths():
+            path_name = self.pg_base.get_path_name_of_node(path[0])
             for node in path:
                 base_attr = self.pg_base.node[node]
                 initial_path = base_attr['initial_path']
@@ -437,7 +436,7 @@ class Scaffolds(object):
                 base_attr['initial_path'] = [node]
                 self.pg_base.add_node(node, attr_dict=base_attr)
                 pg_base.add_node(node, attr_dict=attr)
-            pg_base.add_path(path)
+            pg_base.add_path(path, name=path_name)
 
         self.pg_base = pg_base
         self.pg_initial = None
@@ -1089,13 +1088,13 @@ class Scaffolds(object):
         >>> S = Scaffolds(hic)
         >>> S.merge_to_size(target_length=20, reset_base_paths=False)
 
-        >>> S.pg_base.path == {0: [0, 1], 1: [2, 3]}
+        >>> S.pg_base.path == {'c-0': [0, 1], 'c-1': [2, 3]}
         True
         >>> S.pg_initial.path == {'c-0': [0, 1, 2, 3], 'c-1': [4, 5]}
         True
 
         >>> S.add_edge(1, 2, weight=10)
-        >>> S.pg_base.path == {'0, 1': [0, 1, 2, 3]}
+        >>> S.pg_base.path == {'c-0, c-1': [0, 1, 2, 3]}
         True
 
         >>> S.pg_initial.path == {'c-0, c-1': [0, 1, 2, 3, 4, 5]}

@@ -35,19 +35,24 @@ def parse_arguments(args=None):
                         help='prefix for output files.',
                         required=True)
 
-
     return(parser.parse_args(args))
 
 
-def main(args):
-    # load matrix
-    basename = args.outFile
-    ma = HiCMatrix.hiCMatrix(args.matrix)
-    names_list = []
+def dot_plot_super_contigs(super_contigs):
+    import matplotlib
+    matplotlib.use('Agg')
+    from matplotlib import pyplot as plt
+    fig = plt.figure(figsize=(8,8))
+    ax = fig.add_subplot(111)
+    for chrom, paths in super_contigs.iteritems()
 
-    assembl = HiCAssembler.HiCAssembler(ma)
-    super_contigs, paths = assembl.assemble_contigs()
-    super_check_list = []
+    plt.savefig("/tmp/test.png")
+
+
+
+def evaluate_super_contigs(super_contigs):
+    from collections import defaultdict
+    super_check_list = defaultdict(list)
     for s_contig in super_contigs:
         check_list = []
         for contig in s_contig:
@@ -68,15 +73,28 @@ def main(args):
             check_list.append([start, end])
 
         if check_list[0][0] > check_list[-1][-1]:
+            # revert check list such that the start of the first tuple is the smaller value
             check_list = [x[::-1] for x in check_list][::-1]
         if sorted(sum(check_list,[])) != sum(check_list, []):
             formatted_paths = []
             for c_path in check_list:
                 formatted_paths.append(["{:,}".format(x) for x in c_path])
             log.warn("Problem with {}".format(formatted_paths))
-        super_check_list.append(check_list)
+        super_check_list[chrom].append(check_list)
+        dot_plot_super_contigs(super_check_list)
     import ipdb;ipdb.set_trace()
 
+
+
+def main(args):
+    # load matrix
+    basename = args.outFile
+    ma = HiCMatrix.hiCMatrix(args.matrix)
+    names_list = []
+
+    assembl = HiCAssembler.HiCAssembler(ma)
+    super_contigs, paths = assembl.assemble_contigs()
+    evaluate_super_contigs(super_contigs)
     data = {'scaffolds':assembl.N50,
             'id2contig_pos': assembl.hic.cut_intervals,
             'contig_name': assembl.scaffolds.id2contig_name,

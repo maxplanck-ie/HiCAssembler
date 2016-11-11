@@ -126,12 +126,12 @@ class HiCAssembler:
 
     def get_contig_order(self):
         super_scaffolds = []
-        for path in self.scaffolds_graph.get_all_paths():
+        for path in self.scaffolds_graph.pg_initial.path.values():
             prev_contig_name = None
             prev_node_id = None
             scaffold = []
             for node in path:
-                contig_name = self.scaffolds_graph.pg_base.node[node]['name']
+                contig_name = self.scaffolds_graph.pg_initial.node[node]['name']
                 if prev_contig_name is not None and contig_name != prev_contig_name:
                     scaffold.append((prev_contig_name, direction))
                 else:
@@ -157,11 +157,8 @@ class HiCAssembler:
             n50 = self.scaffolds_graph.compute_N50()
             self.N50.append(n50)
 
-
             # remove bins that are 1/3 the N50
             self.scaffolds_graph.remove_small_paths(n50 * 0.05)
-            if iteration > 0:
-                import ipdb;ipdb.set_trace()
             # the matrix may be of higher resolution than needed.
             # For example, if dpnII RE was used the bins could be
             # merged.

@@ -18,7 +18,7 @@ log.setLevel(logging.DEBUG)
 POWER_LAW_DECAY = 2**(-1.08)  # expected exponential decay at 2*distance
 
 MERGE_LENGTH = 2000  # after the first iteration, contigs are merged as multiples of this length
-MIN_LENGTH = 5000  # minimum contig or PE_scaffold length to consider
+MIN_LENGTH = 50000  # minimum contig or PE_scaffold length to consider
 MIN_MAD = -0.5  # minimum zscore row contacts to filter low scoring bins
 MAX_MAD = 50  # maximum zscore row contacts
 MAX_INT_PER_LENGTH = 100  # maximum number of HiC pairs per length of contig
@@ -77,8 +77,11 @@ class HiCAssembler:
 
         # remove empty bins
         self.hic.maskBins(self.hic.nan_bins)
-        del self.hic.orig_bin_ids
-        del self.hic.orig_cut_intervals
+        try:
+            del self.hic.orig_bin_ids
+            del self.hic.orig_cut_intervals
+        except:
+            pass
 
         self.min_mad = min_mad
         self.max_mad = max_mad
@@ -96,7 +99,6 @@ class HiCAssembler:
         # put together.
         from hicassembler.Scaffolds import Scaffolds
         self.scaffolds_graph = Scaffolds(hic)
-
         # remove contigs that are too small
         self.scaffolds_graph.remove_small_paths(MIN_LENGTH)
 
@@ -153,21 +155,27 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.matrix.shape[0]))
-        for iteration in range(2):
+        for iteration in range(4):
             n50 = self.scaffolds_graph.compute_N50()
+            self.scaffolds_graph.get_paths_stats()
+
+            log.debug("iteration: {}\tN50: {:,}".format(iteration, n50))
             self.N50.append(n50)
 
             # remove bins that are 1/3 the N50
-            self.scaffolds_graph.remove_small_paths(n50 * 0.05)
+            #self.scaffolds_graph.remove_small_paths(n50 * 0.01)
             # the matrix may be of higher resolution than needed.
             # For example, if dpnII RE was used the bins could be
             # merged.
-            reset_base_paths = True if iteration == 0 else False
-            self.scaffolds_graph.merge_to_size(target_length=float(n50)/3, reset_base_paths=reset_base_paths)
+            if iteration == 0:
+                self.scaffolds_graph.merge_to_size(target_length=self.scaffolds_graph.paths_min,
+                                                   reset_base_paths=True)
+            else:
+                self.scaffolds_graph.merge_to_size(target_length=float(n50)/5,
+                                                   reset_base_paths=False)
 
             mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
-            self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'])
-
+            self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'] * 0.1)
 
         return self.get_contig_order()
 

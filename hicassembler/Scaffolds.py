@@ -192,13 +192,19 @@ class Scaffolds(object):
         """
         to_keep = []
         to_keep_paths = []
+        paths_total = 0
         for path in self.get_all_paths():
+            paths_total += 1
             length = (sum([self.pg_base.node[x]['length'] for x in path]))
             if length > min_length:
                 to_keep.extend(path)
                 to_keep_paths.append(path)
 
-        if len(to_keep):
+        if len(to_keep) and len(to_keep) != self.matrix.shape[0]:
+            log.debug("Removing {} scaffolds/contigs, containing {} bins, because they "
+                      "are too shorter than {} ".format(paths_total - len(to_keep_paths),
+                                                        self.matrix.shape[0] - len(to_keep),
+                                                        min_length))
             pg_after_remove = PathGraph()
             old_id_to_new_id = dict([(to_keep[x], x) for x in range(len(to_keep))])
             self.matrix = self.matrix[to_keep, :][:, to_keep]
@@ -221,6 +227,26 @@ class Scaffolds(object):
     def get_paths_length(self):
         for path in self.get_all_paths():
             yield (sum([self.pg_base.node[x]['length'] for x in path]))
+
+    def get_paths_stats(self):
+        import matplotlib.pyplot as plt
+        paths_length = np.fromiter(self.get_paths_length(), int)
+        plt.hist(paths_length)
+        file_name = "/tmp/stats_len_{}.pdf".format(len(paths_length))
+        log.debug("Saving histogram {} ".format(file_name))
+        plt.savefig(file_name)
+        self.paths_min = paths_length.min()
+        self.paths_max = paths_length.max()
+        self.paths_mean = np.mean(paths_length)
+        self.paths_median = np.median(paths_length)
+        self.paths_p25 = np.percentile(paths_length, 25)
+        self.paths_p75 = np.percentile(paths_length, 75)
+        log.info("max:\t{:,}".format(self.paths_max))
+        log.info("min:\t{:,}".format(self.paths_min))
+        log.info("mean:\t{:,}".format(self.paths_mean))
+        log.info("median:\t{:,}".format(self.paths_median))
+        log.info("25th percentile:\t{:,}".format(self.paths_p25))
+        log.info("75th percentile:\t{:,}".format(self.paths_p75))
 
     def compute_N50(self, min_length=200):
         """
@@ -281,7 +307,7 @@ class Scaffolds(object):
                                     as the primary data, otherwise the original paths
                                     and node data is kept and the merge refers to this data. Why is this done?
                                     For contigs with dpnII based bins, the original paths can be hundreds of
-                                    bins long but this detailed information is not needed. Thus,  merging by
+                                    bins long but this detailed information is not needed. Thus, merging by
                                     size only the id of the contig and the shorter (merged) path is kept.
                                     However, subsequent merges by size of scaffolds (union of contigs) need
                                     to refer to the original contigs and all information should be kept. This
@@ -318,7 +344,7 @@ class Scaffolds(object):
 
 
         """
-        log.info("merge_to_size. flank_length: {}".format(target_length))
+        log.info("merge_to_size. flank_length: {:,}".format(target_length))
 
         # flattened list of merged_paths  e.g [[1,2],[3,4],[5,6],[7,8]].
         # This is in contrast to a list containing split_path that may
@@ -390,7 +416,8 @@ class Scaffolds(object):
         # update matrix
         self.matrix = corrected_matrix
 
-        self.pg_initial = self.pg_base
+        if self.pg_initial is None:
+            self.pg_initial = self.pg_base
         self.pg_base = pg_merge
 
         if reset_base_paths is True:
@@ -545,7 +572,7 @@ class Scaffolds(object):
                     flanks.extend([left_flank, right_flank])
                 else:
                     flanks.extend([path])
-                    log.debug("is small and has no flanks".format(path, path_length_sum))
+                    log.debug("The path: {} is small ({}) and has no flanks".format(path, path_length_sum))
             else:
                 left_flank = _get_path_flank(path)
                 right_flank = _get_path_flank(path[::-1])[::-1]

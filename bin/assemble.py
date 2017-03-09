@@ -42,12 +42,26 @@ def dot_plot_super_contigs(super_contigs):
     import matplotlib
     matplotlib.use('Agg')
     from matplotlib import pyplot as plt
-    fig = plt.figure(figsize=(8,8))
-    ax = fig.add_subplot(111)
-    for chrom, paths in super_contigs.iteritems()
 
-    plt.savefig("/tmp/test.png")
+    num_chroms = len(super_contigs.keys())
+    fig = plt.figure(figsize=(8 * num_chroms, 8))
+    for index, (chrom, paths) in enumerate(super_contigs.iteritems()):
+        ax = fig.add_subplot(1, num_chroms, index+1)
+        ax.set_title(chrom)
+        start = 0
+        vlines = []
+        for path in paths:
+            vlines.append(start)
+            for contig in path:
+                contig_len = abs(contig[1] - contig[0])
+                end = start + contig_len
+                ax.plot((start, end), (contig[0], contig[1]))
+                ax.scatter((start, end), (contig[0], contig[1]), s=3)
+                start = end + 1
+        y_min, y_max = ax.get_ylim()
+        ax.vlines(vlines, y_min, y_max, linestyles="dotted", colors='gray', alpha=0.5)
 
+    plt.savefig("/tmp/test.pdf")
 
 
 def evaluate_super_contigs(super_contigs):
@@ -81,9 +95,47 @@ def evaluate_super_contigs(super_contigs):
                 formatted_paths.append(["{:,}".format(x) for x in c_path])
             log.warn("Problem with {}".format(formatted_paths))
         super_check_list[chrom].append(check_list)
-        dot_plot_super_contigs(super_check_list)
-    import ipdb;ipdb.set_trace()
+    dot_plot_super_contigs(super_check_list)
 
+
+def save_fasta(input_fasta, output_fasta, super_scaffolds):
+    """
+
+    Parameters
+    ----------
+    input_fasta input fasta file
+    output_fasta
+    super_scaffolds in the form of a list of list.
+
+    Returns
+    -------
+
+    >>> super_scaffolds = [[('scaffold_12958', '+')], [('scaffold_12942', '+')], [('scaffold_12728', '+')], [('scaffold_12723', '+'), ('scaffold_12963', '+'), ('scaffold_13246', '-'), ('scaffold_12822', '+'), ('scaffold_13047', '-'), ('scaffold_12855', '+')]]
+    >>> save_fasta("../virilis_assembly/data/dvir1.3.fa", "/tmp/test.fa", super_scaffolds)
+    """
+
+    from Bio import SeqIO
+    from Bio.Seq import Seq
+    record_dict = SeqIO.to_dict(SeqIO.parse(input_fasta, "fasta"))
+    new_rec_list = []
+
+    for super_c in super_scaffolds:
+        sequence = Seq("")
+        id = []
+        for contig_id, strand in super_c:
+            if strand == '-':
+                sequence += record_dict[contig_id].reverse_complement()
+            else:
+                sequence += record_dict[contig_id]
+            id.append("{}_{}".format(contig_id, strand))
+
+        id = "_".join(id)
+        sequence.id = id
+        sequence.description = ""
+        new_rec_list.append(sequence)
+
+    with open(output_fasta, "w") as handle:
+        SeqIO.write(new_rec_list, handle, "fasta")
 
 
 def main(args):
@@ -91,9 +143,12 @@ def main(args):
     basename = args.outFile
     ma = HiCMatrix.hiCMatrix(args.matrix)
     names_list = []
-
     assembl = HiCAssembler.HiCAssembler(ma)
+    #import ipdb;ipdb.set_trace()
     super_contigs, paths = assembl.assemble_contigs()
+    save_fasta("dvir1.3.fa", "super_scaffolds.fa", super_contigs)
+
+    print super_contigs
     evaluate_super_contigs(super_contigs)
     data = {'scaffolds':assembl.N50,
             'id2contig_pos': assembl.hic.cut_intervals,

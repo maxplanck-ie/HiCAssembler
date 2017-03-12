@@ -1143,7 +1143,7 @@ class Scaffolds(object):
             initial_path_u = self.pg_base.node[u]['initial_path']
             initial_path_v = self.pg_base.node[v]['initial_path']
 
-            for index_u, index_v in [(0, 0), (0, -1), (-1, 0), (0, 0)]:
+            for index_u, index_v in [(0, 0), (0, -1), (-1, 0), (-1, -1)]:
                 # try all four combinations to join the `initial_path_u` and `initial_path_v`
                 # For example, for [c, d, e], [x, y, z], the attempt is to
                 # try to join (c, x), (c, z), (e, x), (e, z)

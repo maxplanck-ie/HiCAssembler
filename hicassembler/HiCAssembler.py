@@ -187,7 +187,9 @@ class HiCAssembler:
 
             log.debug("iteration: {}\tN50: {:,}".format(iteration, n50))
             self.N50.append(n50)
-
+            self.scaffolds_graph.compute_mean_contact_matrix()
+            self.scaffolds_graph.join_paths_max_span_tree(None, node_degree_threshold=1e10)
+            break
             # remove bins that are 1/3 the N50
             #self.scaffolds_graph.remove_small_paths(n50 * 0.01)
             # the matrix may be of higher resolution than needed.

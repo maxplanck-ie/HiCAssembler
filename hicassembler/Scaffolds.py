@@ -287,6 +287,90 @@ class Scaffolds(object):
         return length[i]
 
     @logit
+    def compute_mean_contact_matrix(self):
+        """
+        Builds a matrix that contains the mean contact between scaffolds
+
+        Returns
+        -------
+        mean values matrix for merged paths.
+
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-1', 0, 10, 1),
+        ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 20, 1)]
+        >>> A = csr_matrix(np.array([[2,2,1,1,1,1],[2,2,1,1,1,1],
+        ... [1,1,1,1,1,1], [1,1,1,1,1,1], [1,1,1,1,1,1], [1,1,1,1,1,1]]))
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
+        >>> S = Scaffolds(hic)
+        >>> S.matrix.todense()
+        matrix([[4, 4, 2, 2, 2, 2],
+                [4, 4, 2, 2, 2, 2],
+                [2, 2, 2, 2, 2, 2],
+                [2, 2, 2, 2, 2, 2],
+                [2, 2, 2, 2, 2, 2],
+                [2, 2, 2, 2, 2, 2]])
+        >>> S.pg_base.path # == {'c-0': [0, 1, 2, 3, 4, 5]}
+        {'c-2': [4, 5], 'c-1': [2, 3], 'c-0': [0, 1]}
+        >>> S.mean_contact_matrix()
+        >>> S.matrix.todense()
+        matrix([[ 4.,  2.,  2.],
+                [ 2.,  2.,  2.],
+                [ 2.,  2.,  2.]])
+
+        Now there are not paths.
+        >>> S.pg_base.path
+        {}
+        >>> S.pg_base.node
+        {0: {'start': 0, 'length': 20, 'initial_path': [0, 1], \
+'end': 20, 'name': 'c-0'}, 1: {'start': 0, 'length': 20, \
+'initial_path': [2, 3], 'end': 20, 'name': 'c-1'}, \
+2: {'start': 0, 'length': 20, 'initial_path': [4, 5], 'end': 20, 'name': 'c-2'}}
+
+        """
+
+        pg_merge = PathGraph()
+        paths_list = []
+        paths_len = []
+        for index, path in enumerate(self.get_all_paths()):
+            path_name = self.pg_base.get_path_name_of_node(path[0])
+            # prepare new PathGraph nodes
+            attr = {'length': sum([self.pg_base.node[x]['length'] for x in path]),
+                    'start': self.pg_base.node[path[0]]['start'],
+                    'end': self.pg_base.node[path[-1]]['end'],
+                    'name': "{}".format(path_name),
+                    'initial_path': path}
+
+            pg_merge.add_node(index, attr_dict=attr)
+            paths_list.append(path)
+            paths_len.append(len(path))
+
+        if len(paths_list) < 2:
+            log.info("To few contigs/scaffold {}. Returning".format(len(paths_list)))
+            return None
+
+        # the reduced matrix contains the sum of the counts
+        # between each contig/scaffold
+        reduced_matrix = reduce_matrix(self.matrix, paths_list, diagonal=True).tocoo()
+        # compute mean values for reduce matrix
+        new_data = np.zeros(len(reduced_matrix.data))
+        for index, value in enumerate(reduced_matrix.data):
+            row_len = paths_len[reduced_matrix.row[index]]
+            col_len = paths_len[reduced_matrix.col[index]]
+            mean = float(value) / (row_len * col_len)
+            new_data[index] = mean
+
+        reduced_matrix.data = new_data
+
+        # update matrix
+        self.matrix = reduced_matrix.tocsr()
+
+        if self.pg_initial is None:
+            self.pg_initial = self.pg_base
+        self.pg_base = pg_merge
+
+        assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
+
+    @logit
     def merge_to_size(self, target_length=20000, reset_base_paths=True):
         """
         finds groups of bins/node that have a sum length of about the `target_length` size.
@@ -322,9 +406,9 @@ class Scaffolds(object):
         True
         >>> S.merge_to_size(target_length=20, reset_base_paths=True)
         >>> S.matrix.todense()
-        matrix([[ 11.26259299,  21.9378206 ,  17.42795074],
-                [ 21.9378206 ,   6.86756935,  21.82307214],
-                [ 17.42795074,  21.82307214,  11.37726956]])
+        matrix([[ 17.50086799,  22.87911701,  16.89293224],
+                [ 22.87911701,  13.88686619,  20.50690064],
+                [ 16.89293224,  20.50690064,  19.87307721]])
 
         Now the 'c-0' contig path is shorter
         >>> S.pg_base.path == {'c-0': [0, 1, 2]}
@@ -886,7 +970,8 @@ class Scaffolds(object):
         """
         matrix = self.matrix.copy()
 
-        matrix.data[matrix.data <= confidence_score] = 0
+        if confidence_score is not None:
+            matrix.data[matrix.data <= confidence_score] = 0
         matrix.setdiag(0)
         matrix.eliminate_zeros()
 
@@ -934,6 +1019,8 @@ class Scaffolds(object):
         edge_nodes = flanks + singletons
         import networkx as nx
         nxG = nx.Graph()
+        for node in edge_nodes:
+            nxG.add_node(str(node), name=self.pg_base.node[node]['name'])
         max_weight = matrix.data.max() + 1
         matrix = matrix.tocoo()
         for u, v, weight in zip(matrix.row, matrix.col, matrix.data):
@@ -953,7 +1040,9 @@ class Scaffolds(object):
             nxG.add_edge(str(path[0]), str(path[-1]), weight=max_weight)
 
         # compute maximum spanning tree
+        nx.write_gml(nxG, "/tmp/mean_network.gml")
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
+        nx.write_gml(nxG, "/tmp/mean_network_mst.gml")
         degree = np.array(dict(nxG.degree()).values())
         if len(degree[degree>2]):
             # count number of hubs
@@ -1138,24 +1227,27 @@ class Scaffolds(object):
         >>> S.pg_initial.path == {'c-0, c-1': [0, 1, 2, 3, 4, 5]}
         True
         """
+        path_added = False
         if self.pg_initial is not None:
             # get the initial nodes that should be merged
             initial_path_u = self.pg_base.node[u]['initial_path']
             initial_path_v = self.pg_base.node[v]['initial_path']
 
-            for index_u, index_v in [(0, 0), (0, -1), (-1, 0), (0, 0)]:
+            for index_u, index_v in [(0, 0), (0, -1), (-1, 0), (-1, -1)]:
                 # try all four combinations to join the `initial_path_u` and `initial_path_v`
                 # For example, for [c, d, e], [x, y, z], the attempt is to
                 # try to join (c, x), (c, z), (e, x), (e, z)
                 # Because c, can be part of the larger path [a, b, c, d, e], any edge
-                # containing 'e' can note be made and  the exception is raised.
+                # containing 'e' can not be made and  the exception is raised.
                 try:
                    self.pg_initial.add_edge(initial_path_u[index_u], initial_path_v[index_v], weight=weight)
                    self.pg_base.add_edge(u, v, weight=weight)
+                   path_added = True
                    break
                 except PathGraphEdgeNotPossible:
                     pass
-
+            if path_added is False:
+                raise HiCAssemblerException("Can't add edge between {}, {}".format(u, v))
 
         else:
            self.pg_base.add_edge(u, v, weight=weight)

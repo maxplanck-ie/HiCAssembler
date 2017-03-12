@@ -148,6 +148,13 @@ def main(args):
     super_contigs, paths = assembl.assemble_contigs()
     save_fasta("dvir1.3.fa", "super_scaffolds.fa", super_contigs)
 
+    flat = []
+    for contig in super_contigs:
+        for part in contig:
+            flat.append(part[0])
+
+    print " ".join(flat)
+
     print super_contigs
     evaluate_super_contigs(super_contigs)
     data = {'scaffolds':assembl.N50,

@@ -18,7 +18,7 @@ log.setLevel(logging.DEBUG)
 POWER_LAW_DECAY = 2**(-1.08)  # expected exponential decay at 2*distance
 
 MERGE_LENGTH = 2000  # after the first iteration, contigs are merged as multiples of this length
-MIN_LENGTH = 50000  # minimum contig or PE_scaffold length to consider
+MIN_LENGTH = 300000  # minimum contig or PE_scaffold length to consider
 MIN_MAD = -0.5  # minimum zscore row contacts to filter low scoring bins
 MAX_MAD = 50  # maximum zscore row contacts
 MAX_INT_PER_LENGTH = 100  # maximum number of HiC pairs per length of contig
@@ -147,6 +147,32 @@ class HiCAssembler:
             super_scaffolds.append(scaffold)
         return super_scaffolds, self.scaffolds_graph.get_all_paths()
 
+    def reorder_matrix(self):
+        """
+        Reorders the matrix using the assembled paths
+        Returns
+        -------
+        """
+        order_list = []
+        try:
+            for path in self.scaffolds_graph.pg_initial.path.values():
+                order_list.extend(path)
+        except:
+
+            for path in self.scaffolds_graph.pg_base.path.values():
+                order_list.extend(path)
+
+        assert len(order_list) == self.scaffolds_graph.hic.matrix.shape[0]
+        return self.scaffolds_graph.hic.matrix[order_list, :][:, order_list]
+
+    def plot_matrix(self, name):
+        import matplotlib.pyplot as plt
+        fig = plt.figure(figsize=(20,20))
+        self.reorder_matrix()
+        plt.matshow(np.log1p(self.scaffolds_graph.hic.matrix.todense()))
+        print "saving matrix plot"
+        plt.savefig(name)
+
     def assemble_contigs(self):
         """
 
@@ -155,7 +181,7 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.matrix.shape[0]))
-        for iteration in range(4):
+        for iteration in range(3):
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
 
@@ -167,15 +193,22 @@ class HiCAssembler:
             # the matrix may be of higher resolution than needed.
             # For example, if dpnII RE was used the bins could be
             # merged.
+
+            mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
+#            import ipdb;ipdb.set_trace()
+            self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'])
+            if iteration == 0:
+                self.scaffolds_graph.reset_pg_initial()
+#            self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'] * 0.1)
+            self.plot_matrix("/tmp/matrix_iter_{}.pdf".format(iteration))
+
+
             if iteration == 0:
                 self.scaffolds_graph.merge_to_size(target_length=self.scaffolds_graph.paths_min,
-                                                   reset_base_paths=True)
+                                                   reset_base_paths=False)
             else:
                 self.scaffolds_graph.merge_to_size(target_length=float(n50)/5,
                                                    reset_base_paths=False)
-
-            mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
-            self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'] * 0.1)
 
         return self.get_contig_order()
 

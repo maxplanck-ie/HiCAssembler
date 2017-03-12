@@ -67,7 +67,7 @@ class Scaffolds(object):
         """
         # initialize the list of contigs as a graph with no edges
         self.hic = hic_matrix
-        self.matrix = self.hic.matrix.copy()  # will contain the reduced matrix
+        self.matrix = None  # will contain the reduced matrix
         self.pg_base = PathGraph()
         self.pg_initial = None
 
@@ -110,6 +110,9 @@ class Scaffolds(object):
         contig_path = []
         prev_label = None
         length_array = []
+        self.matrix = self.hic.matrix.copy()
+        self.pg_base = PathGraph()
+        self.pg_initial = None
 
         for idx, interval in enumerate(self.hic.cut_intervals):
             label, start, end, coverage = interval
@@ -190,39 +193,26 @@ class Scaffolds(object):
                 [ 8,  8, 15],
                 [ 5, 15,  0]])
         """
-        to_keep = []
-        to_keep_paths = []
+        to_remove = []
+        to_remove_paths = []
+
         paths_total = 0
         for path in self.get_all_paths():
             paths_total += 1
             length = (sum([self.pg_base.node[x]['length'] for x in path]))
-            if length > min_length:
-                to_keep.extend(path)
-                to_keep_paths.append(path)
 
-        if len(to_keep) and len(to_keep) != self.matrix.shape[0]:
+            if length <= min_length:
+                to_remove.extend(path)
+                to_remove_paths.append(path)
+
+        if len(to_remove) and len(to_remove) < self.matrix.shape[0]:
             log.debug("Removing {} scaffolds/contigs, containing {} bins, because they "
-                      "are too shorter than {} ".format(paths_total - len(to_keep_paths),
-                                                        self.matrix.shape[0] - len(to_keep),
-                                                        min_length))
-            pg_after_remove = PathGraph()
-            old_id_to_new_id = dict([(to_keep[x], x) for x in range(len(to_keep))])
-            self.matrix = self.matrix[to_keep, :][:, to_keep]
-            for path in to_keep_paths:
-                path_with_new_ids = []
-                path_name = None
-                for node in path:
-                    if path_name is None:
-                        path_name = self.pg_base.get_path_name_of_node(node)
+                      "are shorter than {} ".format(len(to_remove_paths),
+                                                    len(to_remove),
+                                                    min_length))
 
-                    new_node_id = old_id_to_new_id[node]
-                    attr = self.pg_base.node[node]
-                    pg_after_remove.add_node(new_node_id, attr_dict=attr)
-                    path_with_new_ids.append(new_node_id)
-                if len(path_with_new_ids):
-                    pg_after_remove.add_path(path_with_new_ids, name=path_name)
-
-            self.pg_base = pg_after_remove
+            self.hic.removeBins(to_remove)
+            self._init_path_graph()
 
     def get_paths_length(self):
         for path in self.get_all_paths():
@@ -231,16 +221,20 @@ class Scaffolds(object):
     def get_paths_stats(self):
         import matplotlib.pyplot as plt
         paths_length = np.fromiter(self.get_paths_length(), int)
-        plt.hist(paths_length)
+        plt.hist(paths_length, 100)
         file_name = "/tmp/stats_len_{}.pdf".format(len(paths_length))
         log.debug("Saving histogram {} ".format(file_name))
         plt.savefig(file_name)
+        plt.close()
+
+        self.paths_len = len(paths_length)
         self.paths_min = paths_length.min()
         self.paths_max = paths_length.max()
         self.paths_mean = np.mean(paths_length)
         self.paths_median = np.median(paths_length)
         self.paths_p25 = np.percentile(paths_length, 25)
         self.paths_p75 = np.percentile(paths_length, 75)
+        log.info("len:\t{:,}".format(self.paths_len))
         log.info("max:\t{:,}".format(self.paths_max))
         log.info("min:\t{:,}".format(self.paths_min))
         log.info("mean:\t{:,}".format(self.paths_mean))
@@ -428,7 +422,7 @@ class Scaffolds(object):
     def reset_pg_initial(self):
         """
         This is a function called to reduce the information stored from original paths
-        after merge_to_size is called for the firt time.
+        after merge_to_size is called for the first time.
 
         When contigs contains a lot of bins (e.g. when DpnII restriction enzyme was used)
         after the initial merge_to_size, there is no need to keep the detailed
@@ -444,6 +438,8 @@ class Scaffolds(object):
             return
 
         pg_base = PathGraph()
+        # this variable is to keep the hic object matrix in sync
+        cut_intervals = []
         for path in self.get_all_paths():
             path_name = self.pg_base.get_path_name_of_node(path[0])
             for node in path:
@@ -463,10 +459,17 @@ class Scaffolds(object):
                 base_attr['initial_path'] = [node]
                 self.pg_base.add_node(node, attr_dict=base_attr)
                 pg_base.add_node(node, attr_dict=attr)
+                cut_intervals.append((attr['name'], attr['start'], attr['end'], attr['coverage']))
             pg_base.add_path(path, name=path_name)
 
         self.pg_base = pg_base
         self.pg_initial = None
+
+        # reset the hic matrix object
+        self.hic.matrix = self.matrix
+        self.hic.cut_intervals = cut_intervals
+        self.hic.interval_trees, self.hic.chrBinBoundaries = \
+            self.hic.intervalListToIntervalTree(self.hic.cut_intervals)
 
     def split_path(self, path, flank_length, recursive_repetitions, counter=0):
         """
@@ -867,7 +870,7 @@ class Scaffolds(object):
         [[0], [1], [2, 3, 4, 5]]
 
 
-        Test bandwidh permutation
+        Test bandwidth permutation
         >>> S = Scaffolds(hic)
         >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
         ... node_degree_threshold=5)
@@ -881,7 +884,6 @@ class Scaffolds(object):
         [[0], [1], [2, 3, 4, 5]]
 
         """
-
         matrix = self.matrix.copy()
 
         matrix.data[matrix.data <= confidence_score] = 0
@@ -891,12 +893,16 @@ class Scaffolds(object):
         # get the node degree from the source  matrix.
         node_degree = dict([(x, matrix[x, :].nnz) for x in range(matrix.shape[0])])
 
-        # define node degree threshold as the degree for the 80th percentile
+        # define node degree threshold as the degree for the 90th percentile
+        #node_degree_threshold = 1e10
         if node_degree_threshold is None:
-            node_degree_threshold = np.percentile(node_degree.values(), 90)
-
+            node_degree_threshold = np.percentile(node_degree.values(), 99)
+        len_nodes_to_remove = len([x for x in node_degree.values() if x >= node_degree_threshold])
+        log.info(" {} ({:.2f}%) nodes will be removed because they are below the degree "
+                 "threshold".format(len_nodes_to_remove, 100*float(len_nodes_to_remove)/matrix.shape[0]))
         # remove from nxG nodes with degree > node_degree_threshold
         # nodes with high degree are problematic
+        to_remove = []
         for node, degree in node_degree.iteritems():
             if degree >= node_degree_threshold:
                 # unset the rows and cols of hubs
@@ -904,11 +910,14 @@ class Scaffolds(object):
                 # as self.matrix because the self.matrix
                 # is used for permutation and must not contain
                 # the hub data.
-                log.debug("removing hub node {}".format(node))
-                self.matrix[node, :] = 0
-                self.matrix[:, node] = 0
-                matrix[node, :] = 0
-                matrix[:, node] = 0
+                log.debug("removing hub node {} with degree {} (thresh: {})"
+                          "".format(node, degree, node_degree_threshold))
+
+                to_remove.append(node)
+        self.matrix[to_remove, :] = 0
+        self.matrix[:, to_remove] = 0
+        matrix[to_remove, :] = 0
+        matrix[:, to_remove] = 0
 
         matrix.eliminate_zeros()
         self.matrix.eliminate_zeros()
@@ -933,25 +942,27 @@ class Scaffolds(object):
             if u in edge_nodes and v in edge_nodes:
                 if u in self.pg_base[v]:
                     # u and v are in same path
-                    nxG.add_edge(u, v, weight=max_weight)
+                    nxG.add_edge(str(u), str(v), weight=max_weight)
                 else:
-                    nxG.add_edge(u, v, weight=weight)
+                    nxG.add_edge(str(u), str(v), weight=weight)
 
         # add edges between same path nodes
         nlist = [node for node in nxG]
         for node in nlist:
-            path = self.pg_base[node]
-            if node == 25:
-                print path
-            nxG.add_edge(path[0], path[-1], weight=max_weight)
+            path = self.pg_base[int(node)]
+            nxG.add_edge(str(path[0]), str(path[-1]), weight=max_weight)
 
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
+        degree = np.array(dict(nxG.degree()).values())
+        if len(degree[degree>2]):
+            # count number of hubs
+            log.info("{} hubs were found".format(len(degree[degree>2])))
 
         if hub_solving_method == 'remove weakest':
             self._remove_weakest(nxG)
         else:
-            log.debug("egree: {}".format(node_degree))
+            log.debug("degree: {}".format(node_degree))
             self._bandwidth_permute(nxG, node_degree, node_degree_threshold)
 
     def _bandwidth_permute(self, G, node_degree, node_degree_threshold):
@@ -978,11 +989,11 @@ class Scaffolds(object):
                     is_hub.add(node)
                     edge_has_hub = True
             if edge_has_hub is False:
-                if u in self.pg_base[v]:
+                if int(u) in self.pg_base[int(v)]:
                     # skip same path nodes
                     continue
                 else:
-                    self.add_edge(u, v, weight=data['weight'])
+                    self.add_edge(int(u), int(v), weight=data['weight'])
 
         if len(is_hub) == 0:
             return
@@ -996,14 +1007,14 @@ class Scaffolds(object):
             if node in seen:
                 continue
             if degree > 2:
-                paths_to_check = [self.pg_base[node]]
-                seen.update(self.pg_base[node])
+                paths_to_check = [self.pg_base[int(node)]]
+                seen.update(self.pg_base[int(node)])
                 for v in G.adj[node]:
                     # only add paths that are not the same path
                     # already added.
-                    if v not in self.pg_base[node]:
-                        paths_to_check.append(self.pg_base[v])
-                        seen.update(self.pg_base[v])
+                    if int(v) not in self.pg_base[int(node)]:
+                        paths_to_check.append(self.pg_base[int(v)])
+                        seen.update(self.pg_base[int(v)])
 
                 # check, that the paths_tho_check do not contain hubs
                 if len(paths_to_check) > 1:
@@ -1061,7 +1072,7 @@ class Scaffolds(object):
         None
         """
         node_degree_mst = dict(G.degree(G.node.keys()))
-        for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k,v): v, reverse=True):
+        for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k, v): v, reverse=True):
             if degree > 2:
                 adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
                 # remove the weakest edges but only if either of the nodes is not a hub
@@ -1074,11 +1085,11 @@ class Scaffolds(object):
         # based on the resulting maximum spanning tree, add the new edges to
         # the paths graph.
         for u, v, data in G.edges(data=True):
-            if u in self.pg_base[v]:
+            if int(u) in self.pg_base[int(v)]:
                 # skip same path nodes
                 continue
             else:
-                self.add_edge(u, v, weight=data['weight'])
+                self.add_edge(int(u), int(v), weight=data['weight'])
 
     def add_edge(self, u, v, weight=None):
         """

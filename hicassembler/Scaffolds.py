@@ -292,7 +292,7 @@ class Scaffolds(object):
         """
         Splits each contig/scaffold into `num_splits` parts and creates
         a new reduced matrix with the slitted paths. The merge data is kept
-        in the pb_base PathGraph object
+        in the pg_base PathGraph object
 
         Parameters
         ----------
@@ -1021,7 +1021,7 @@ class Scaffolds(object):
 
     @staticmethod
     @logit
-    def find_best_permutation(ma, paths):
+    def find_best_permutation(ma, paths, return_all_sorted_best_paths=False):
         """
         Computes de bandwidth(bw) for all permutations of rows (and, because
         the matrix is symmetric of cols as well).
@@ -1074,6 +1074,9 @@ class Scaffolds(object):
         min_val = min(bw_value)
         min_indx = bw_value.index(min_val)
 
+        if return_all_sorted_best_paths is True:
+            order = np.argsort(bw_value)
+            return [(perm_list[x], bw_value[x]) for x in order]
         return perm_list[min_indx]
 
     @staticmethod
@@ -1233,7 +1236,7 @@ class Scaffolds(object):
         if node_degree_threshold is None:
             node_degree_threshold = np.percentile(node_degree.values(), 99)
         len_nodes_to_remove = len([x for x in node_degree.values() if x >= node_degree_threshold])
-        log.info(" {} ({:.2f}%) nodes will be removed because they are below the degree "
+        log.info(" {} ({:.2f}%) nodes will be removed because they are above the degree "
                  "threshold".format(len_nodes_to_remove, 100*float(len_nodes_to_remove)/matrix.shape[0]))
         # remove from nxG nodes with degree > node_degree_threshold
         # nodes with high degree are problematic
@@ -1262,7 +1265,7 @@ class Scaffolds(object):
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
         nx.write_graphml(nxG, "ice_mst.graphml")
         degree = np.array(dict(nxG.degree()).values())
-        if len(degree[degree>2]):
+        if len(degree[degree > 2]):
             # count number of hubs
             log.info("{} hubs were found".format(len(degree[degree>2])))
 
@@ -1271,6 +1274,7 @@ class Scaffolds(object):
         else:
             log.debug("degree: {}".format(node_degree))
             self._bandwidth_permute(nxG, node_degree, node_degree_threshold)
+        import ipdb; ipdb.set_trace()
 
     def _bandwidth_permute(self, G, node_degree, node_degree_threshold):
         """
@@ -1453,6 +1457,7 @@ class Scaffolds(object):
 
         matrix = self.matrix.tocoo()
         max_weight = matrix.data.max() + 1
+
         for u, v, weight in zip(matrix.row, matrix.col, matrix.data):
             if u == v:
                 continue
@@ -1508,19 +1513,32 @@ class Scaffolds(object):
             initial_path_u = self.pg_base.node[u]['initial_path']
             initial_path_v = self.pg_base.node[v]['initial_path']
 
-            best_path = Scaffolds.find_best_permutation(self.hic.matrix, [initial_path_u, initial_path_v])
+            best_paths = Scaffolds.find_best_permutation(self.hic.matrix,
+                                                         [initial_path_u, initial_path_v],
+                                                         return_all_sorted_best_paths=True)
+            best_path = best_paths[0][0]
+            for iter in range(len(best_path)):
+                try:
+                    self.pg_initial.add_edge(best_path[0][-1], best_path[1][0], weight=weight)
+                    self.pg_base.add_edge(u, v, weight=weight)
+                except PathGraphEdgeNotPossible:
+                    # TEST: try with the next best permutation
+                    try:
+                        best_path = best_paths[iter][0]
+                    except IndexError:
+                        break
 
-            try:
-               self.pg_initial.add_edge(best_path[0][-1], best_path[1][0], weight=weight)
-               self.pg_base.add_edge(u, v, weight=weight)
-            except PathGraphEdgeNotPossible:
-                raise HiCAssemblerException("Can't add edge between {} and {} "
-                                            "corresponging to {} and {}".format(u, v,
-                                                                                self.pg_base.get_path_name_of_node(u),
-                                                                                self.pg_base.get_path_name_of_node(v)))
+
+                    log.debug("*WARN* Can't add edge between {} and {} corresponding to {} and {}".format(u, v,
+                                                                                    self.pg_base.get_path_name_of_node(u),
+                                                                                    self.pg_base.get_path_name_of_node(v)))
+
+                    #raise HiCAssemblerException("Can't add edge between {} and {} "
+                    #                            "corresponding to {} and {}".format(u, v,
+                    #                                                                self.pg_base.get_path_name_of_node(u),
+                    #                                                                self.pg_base.get_path_name_of_node(v)))
         else:
-           self.pg_base.add_edge(u, v, weight=weight)
-
+            self.pg_base.add_edge(u, v, weight=weight)
 
     def add_edge_bk(self, u, v, weight=None):
         """
@@ -1595,7 +1613,6 @@ class Scaffolds(object):
 
         else:
            self.pg_base.add_edge(u, v, weight=weight)
-
 
     @logit
     def get_nearest_neighbors(self, confidence_score):

@@ -156,7 +156,8 @@ class HiCAssembler:
 
         self.scaffolds_graph.get_paths_stats()
 
-    def plot_matrix(self, filename, title='Assembly results', cmap='RdYlBu_r', log1p=True, vmax=None, vmin=None):
+    def plot_matrix(self, filename, title='Assembly results',
+                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None):
 
         log.debug("plotting matrix")
         import matplotlib.pyplot as plt
@@ -164,7 +165,6 @@ class HiCAssembler:
 
         fig = plt.figure(figsize=(10,10))
         hic = self.reorder_matrix()
-
 
         axHeat2 = fig.add_subplot(111)
         axHeat2.set_title(title)
@@ -181,20 +181,27 @@ class HiCAssembler:
         divider = make_axes_locatable(axHeat2)
         cax = divider.append_axes("right", size="2.5%", pad=0.09)
         cbar = fig.colorbar(img3, cax=cax)
-        cbar.solids.set_edgecolor("face") # to avoid white lines in the color bar in pdf plots
+        cbar.solids.set_edgecolor("face")  # to avoid white lines in the color bar in pdf plots
 
         chrbin_boundaries = hic.chrBinBoundaries
         ticks = [pos[0] for pos in chrbin_boundaries.values()]
         labels = chrbin_boundaries.keys()
         axHeat2.set_xticks(ticks)
-        if len(labels) > 20:
+        if len(labels) <= 20:
+            axHeat2.set_xticklabels(labels, size=8)
+        elif 40 > len(labels) > 20:
             axHeat2.set_xticklabels(labels, size=4, rotation=90)
         else:
-            axHeat2.set_xticklabels(labels, size=8)
+            axHeat2.set_xticklabels(labels, size=2, rotation=90)
 
+        if add_vlines:
+            # add lines to demarcate 'super scaffolds'
+            vlines = [x[0] for x in hic.chromosomeBinBoundaries.values()]
+            axHeat2.vlines(vlines, 1, ma.shape[0], linewidth=0.5)
+            axHeat2.set_ylim(ma.shape[0], 0)
         axHeat2.get_yaxis().set_visible(False)
-        log.debug("savubg matrix {}".format(filename))
-        plt.savefig(filename)
+        log.debug("saving matrix {}".format(filename))
+        plt.savefig(filename, dpi=300)
 
     def remove_noise_from_matrix(self):
         """
@@ -243,22 +250,22 @@ class HiCAssembler:
         import copy
         hic = copy.deepcopy(self.scaffolds_graph.hic)
         order_list = []
-        name_list = []
         from collections import OrderedDict
         scaff_boundaries = OrderedDict()
         start_bin = 0
         try:
             for name, path in self.scaffolds_graph.pg_initial.path.iteritems():
-                name_list.extend([name] * len(path))
                 order_list.extend(path)
                 scaff_boundaries[name] = (start_bin, start_bin + len(path))
-                start_bin = len(path)
+                start_bin += len(path)
         except:
+            # this case only happens when no scaffolds had been added
+            # yet and pg_initial does not exist. I.e. only happens for
+            # the before_assembly matrix
             for name, path in self.scaffolds_graph.pg_base.path.iteritems():
-                name_list.extend([name] * len(path))
                 order_list.extend(path)
                 scaff_boundaries[name] = (start_bin, start_bin + len(path))
-                start_bin = len(path)
+                start_bin += len(path)
 
         assert len(order_list) == hic.matrix.shape[0]
         hic.reorderBins(order_list)
@@ -285,7 +292,7 @@ class HiCAssembler:
             self.N50.append(n50)
 
             self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice', use_log=False)
-            self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice', use_log=False)
+            # self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice', use_log=False)
             stats = self.scaffolds_graph.get_stats_per_split()
             try:
                 conf_score = stats[2]['median'] * 0.5
@@ -294,11 +301,13 @@ class HiCAssembler:
             log.info("Confidence score set to: {}".format(conf_score))
 
 #            self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=1e10)
-            self.scaffolds_graph.join_paths_max_span_tree(None, node_degree_threshold=1e10)
+            self.scaffolds_graph.join_paths_max_span_tree(None, node_degree_threshold=2e3,
+                                                              hub_solving_method='remove weakest')
 
+            self.plot_matrix("./after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
 
-            self.plot_matrix("./after_assembly.pdf", title="After assembly")
-            break
+        print self.N50
+        if 2==1:
             # remove bins that are 1/3 the N50
             #self.scaffolds_graph.remove_small_paths(n50 * 0.01)
             # the matrix may be of higher resolution than needed.

@@ -204,6 +204,7 @@ class Scaffolds(object):
             length = (sum([self.pg_base.node[x]['length'] for x in path]))
 
             if length <= min_length:
+                log.debug("Removing path {}".format(self.pg_base.get_path_name_of_node(x)))
                 to_remove.extend(path)
                 to_remove_paths.append(path)
 
@@ -1540,6 +1541,19 @@ class Scaffolds(object):
         else:
             self.pg_base.add_edge(u, v, weight=weight)
 
+    def delete_edge(self, u, v):
+        if self.pg_initial is not None:
+            raise "deleting edges not allowed"
+        else:
+            self.pg_base.delete_edge(u, v)
+            for node in [u, v]:
+                # get new name of path (assigned_automatically by PathGraph)
+                path_name = self.pg_base.get_path_name_of_node(node)
+                # get the ids that belong to that path
+                for node_id in self.pg_base.path[path_name]:
+                    name, start, end, extra = self.hic.cut_intervals[node_id]
+                    self.hic.cut_intervals[node_id] = (path_name, start, end, extra)
+
     def add_edge_bk(self, u, v, weight=None):
         """
         Adds and edge both in the reduced PathGraph (pg_base) and in the
@@ -1613,6 +1627,7 @@ class Scaffolds(object):
 
         else:
            self.pg_base.add_edge(u, v, weight=weight)
+
 
     @logit
     def get_nearest_neighbors(self, confidence_score):

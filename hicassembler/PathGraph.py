@@ -463,7 +463,6 @@ class PathGraph(object):
         self.add_path(new_path_u, name=new_name_u)
         self.add_path(new_path_v, name=new_name_v)
 
-
     def delete_path_containing_node(self, n, keep_adj=False):
         """
 

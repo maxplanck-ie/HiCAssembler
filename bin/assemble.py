@@ -6,7 +6,6 @@ import numpy as np
 
 import hicassembler.parserCommon as parserCommon
 
-import hicexplorer.HiCMatrix as HiCMatrix
 import hicassembler.HiCAssembler as HiCAssembler
 import logging as log
 
@@ -19,6 +18,7 @@ debug = 0
 TEMP_FOLDER = '/tmp/'
 
 log.basicConfig(level=log.DEBUG)
+
 
 def parse_arguments(args=None):
     parent_parser = parserCommon.getParentArgParse()
@@ -33,6 +33,10 @@ def parse_arguments(args=None):
 
     parser.add_argument('--outFile', '-o',
                         help='prefix for output files.',
+                        required=True)
+
+    parser.add_argument('--fasta', '-f',
+                        help='fasta used for the hic',
                         required=True)
 
     return(parser.parse_args(args))
@@ -141,12 +145,18 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
 def main(args):
     # load matrix
     basename = args.outFile
-    ma = HiCMatrix.hiCMatrix(args.matrix)
     names_list = []
-    assembl = HiCAssembler.HiCAssembler(ma)
-    #import ipdb;ipdb.set_trace()
+    assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFile)
+
     super_contigs, paths = assembl.assemble_contigs()
-    save_fasta("dvir1.3.fa", "super_scaffolds.fa", super_contigs)
+    save_fasta(args.fasta, "super_scaffolds.fa", super_contigs)
+
+    flat = []
+    for contig in super_contigs:
+        for part in contig:
+            flat.append(part[0])
+
+    print " ".join(flat)
 
     print super_contigs
     evaluate_super_contigs(super_contigs)

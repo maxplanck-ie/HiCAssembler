@@ -598,7 +598,7 @@ class HiCAssembler:
             i += len(split_path)
             paths_flatten.extend(split_path)
 
-#            print "in {} out {} ".format(path, split_path)
+#            print "in {} out {} ".format(path, split_path_envenly)
         if len(paths_flatten) == 0:
             print "[{}] Nothing to reduce.".format(inspect.stack()[0][3])
             return None, None

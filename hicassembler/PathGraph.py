@@ -1,3 +1,5 @@
+import re
+
 class PathGraph(object):
     """
     This class implements a path graph object.
@@ -17,7 +19,7 @@ class PathGraph(object):
         self.node = {}
         self.path = {}
         self.path_id = {}  # maps nodes to paths
-        self.adj = {} # to store the edges
+        self.adj = {}  # to store the edges
 
     def __iter__(self):
         """Iterate over the nodes. Use the expression 'for n in S'.
@@ -396,7 +398,7 @@ class PathGraph(object):
 
         # remove previous path and add new path
         for node in [u, v]:
-            self.delete_path_containing_node(node)
+            self.delete_path_containing_node(node, keep_adj=True)
 
         self.add_path(path[u] + path[v], name=new_name)
         datadict = self.adj[u].get(v, {})
@@ -404,13 +406,81 @@ class PathGraph(object):
         self.adj[u][v] = datadict
         self.adj[v][u] = datadict
 
-    def delete_path_containing_node(self, n):
+    def delete_edge(self, u, v):
+        """
+
+        Parameters
+        ----------
+        u
+        v
+
+        Returns
+        -------
+
+        >>> S = PathGraph()
+        >>> S.add_path([0,1,2,3])
+        >>> S[0]
+        [0, 1, 2, 3]
+        >>> S.delete_edge(1,2)
+        >>> S.path
+        {0: [0, 1], 1: [2, 3]}
+
+        # renaming of named paths
+        >>> S = PathGraph()
+        >>> S.add_path([0,1,2,3], name='test')
+        >>> S.delete_edge(1,2)
+        >>> S.path
+        {'test_split_A': [0, 1], 'test_split_B': [2, 3]}
+
+        """
+        # check that u and v are in the same path
+        if self.path_id[u] != self.path_id[v]:
+            message = "Can remove edge between {} and {} because they do not belong to the same path".format(u, v)
+            raise PathGraphException(message)
+
+        # check that u and v are directly connected
+        if u not in self.adj[v]:
+            message = "Can remove edge between {} and {} because they are not directly connected".format(u, v)
+            raise PathGraphException(message)
+
+        path_id = self.path_id[u]
+        idx_u = self.path[path_id].index(u)
+        idx_v = self.path[path_id].index(v)
+
+        if idx_u > idx_v:
+            idx_u, idx_v = idx_v, idx_u
+        new_path_u = self.path[path_id][:idx_v]
+        new_path_v = self.path[path_id][idx_v:]
+
+        # delete path
+        self.delete_path_containing_node(u)
+
+        # add the new two paths
+        if isinstance(path_id, int):
+            new_name_u = None
+            new_name_v = None
+        else:
+            # check if the path was divided before
+            res = re.search("(.*?)/(\d+)$", str(path_id))
+            if res is not None:
+                path_id = res.group(1)
+                split_number = int(res.group(2))
+            else:
+                split_number = 1
+                path_id = str(path_id)
+            new_name_u = str(path_id) + "/{}".format(split_number)
+            new_name_v = str(path_id) + "/{}".format(split_number + 1)
+        self.add_path(new_path_u, name=new_name_u)
+        self.add_path(new_path_v, name=new_name_v)
+
+    def delete_path_containing_node(self, n, keep_adj=False):
         """
 
         Parameters
         ----------
         n : path containing node id is deleted
-
+        keep_adj : if set to True, then the self.adj values are not removed. It is practical to
+                   keep the adj when a path simply updated because of add edge or remove edge
         Returns
         -------
 
@@ -428,11 +498,16 @@ class PathGraph(object):
         {}
         >>> S.path_id
         {}
+
+        >>> S.adj[1]
+        {}
         """
         if n in self.path_id:
             path_id = self.path_id[n]
             for _n in self.path[self.path_id[n]]:
                 del self.path_id[_n]
+                if not keep_adj:
+                    self.adj[_n] = {}
             del self.path[path_id]
 
     def merge_paths(self, paths):

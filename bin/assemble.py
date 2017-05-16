@@ -6,7 +6,6 @@ import numpy as np
 
 import hicassembler.parserCommon as parserCommon
 
-import hicexplorer.HiCMatrix as HiCMatrix
 import hicassembler.HiCAssembler as HiCAssembler
 import logging as log
 
@@ -146,10 +145,9 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
 def main(args):
     # load matrix
     basename = args.outFile
-    ma = HiCMatrix.hiCMatrix(args.matrix)
     names_list = []
-    assembl = HiCAssembler.HiCAssembler(ma, args.fasta)
-    #import ipdb;ipdb.set_trace()
+    assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFile)
+
     super_contigs, paths = assembl.assemble_contigs()
     save_fasta(args.fasta, "super_scaffolds.fa", super_contigs)
 

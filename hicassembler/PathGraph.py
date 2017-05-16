@@ -1,3 +1,5 @@
+import re
+
 class PathGraph(object):
     """
     This class implements a path graph object.
@@ -458,8 +460,16 @@ class PathGraph(object):
             new_name_u = None
             new_name_v = None
         else:
-            new_name_u = str(path_id) + "_split_A"
-            new_name_v = str(path_id) + "_split_B"
+            # check if the path was divided before
+            res = re.search("(.*?)/(\d+)$", str(path_id))
+            if res is not None:
+                path_id = res.group(1)
+                split_number = int(res.group(2))
+            else:
+                split_number = 1
+                path_id = str(path_id)
+            new_name_u = str(path_id) + "/{}".format(split_number)
+            new_name_v = str(path_id) + "/{}".format(split_number + 1)
         self.add_path(new_path_u, name=new_name_u)
         self.add_path(new_path_v, name=new_name_v)
 

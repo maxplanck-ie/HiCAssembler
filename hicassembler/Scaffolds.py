@@ -421,10 +421,22 @@ class Scaffolds(object):
             merged_path = []
             path_name = self.pg_base.get_path_name_of_node(path[0])
             for index, sub_path in enumerate(split_path):
+                if self.pg_initial is None:
+                    initial_path = sub_path
+                else:
+                    if num_splits != 1:
+                        log.debug("num_splits > 1 are not supported")
+                        exit(1)
+                    # the initial path is obtained from the pg_initial graph by querying
+                    # the one of the 'initial' node ids. self.pg_initial[x] will return the whole path
+                    # for any x that belongs to the path.
+                    # self.pg_base.node[sub_path[0]] returns the node data for the first node id in the
+                    # sub_path and then ['initial_path'][0] gets the first 'initial' node id.
+                    initial_path = self.pg_initial[self.pg_base.node[sub_path[0]]['initial_path'][0]]
                 # prepare new PathGraph nodes
                 attr = {'length': sum([self.pg_base.node[x]['length'] for x in sub_path]),
                         'name': "{}/{}".format(path_name, index),
-                        'initial_path': sub_path}
+                        'initial_path': initial_path}
 
                 pg_merge.add_node(i, attr_dict=attr)
 
@@ -1264,7 +1276,7 @@ class Scaffolds(object):
         nxG = self.make_nx_graph()
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
-        nx.write_graphml(nxG, "ice_mst.graphml")
+        nx.write_graphml(nxG, "ice_mst_{}.graphml".format(self.matrix.shape[0]))
         degree = np.array(dict(nxG.degree()).values())
         if len(degree[degree > 2]):
             # count number of hubs
@@ -1275,7 +1287,6 @@ class Scaffolds(object):
         else:
             log.debug("degree: {}".format(node_degree))
             self._bandwidth_permute(nxG, node_degree, node_degree_threshold)
-        import ipdb; ipdb.set_trace()
 
     def _bandwidth_permute(self, G, node_degree, node_degree_threshold):
         """
@@ -1514,30 +1525,24 @@ class Scaffolds(object):
             initial_path_u = self.pg_base.node[u]['initial_path']
             initial_path_v = self.pg_base.node[v]['initial_path']
 
-            best_paths = Scaffolds.find_best_permutation(self.hic.matrix,
-                                                         [initial_path_u, initial_path_v],
+            best_paths = Scaffolds.find_best_permutation(self.hic.matrix, [initial_path_u, initial_path_v],
                                                          return_all_sorted_best_paths=True)
-            best_path = best_paths[0][0]
-            for iter in range(len(best_path)):
+            path_added = False
+            for iter_ in range(len(best_paths)):
+                best_path = best_paths[iter_][0]
                 try:
                     self.pg_initial.add_edge(best_path[0][-1], best_path[1][0], weight=weight)
                     self.pg_base.add_edge(u, v, weight=weight)
+                    path_added = True
                 except PathGraphEdgeNotPossible:
-                    # TEST: try with the next best permutation
-                    try:
-                        best_path = best_paths[iter][0]
-                    except IndexError:
-                        break
-
-
-                    log.debug("*WARN* Can't add edge between {} and {} corresponding to {} and {}".format(u, v,
-                                                                                    self.pg_base.get_path_name_of_node(u),
-                                                                                    self.pg_base.get_path_name_of_node(v)))
-
-                    #raise HiCAssemblerException("Can't add edge between {} and {} "
-                    #                            "corresponding to {} and {}".format(u, v,
-                    #                                                                self.pg_base.get_path_name_of_node(u),
-                    #                                                                self.pg_base.get_path_name_of_node(v)))
+                    log.debug("*WARN* Can't add edge between {} and {} corresponding "
+                              "to {} and {}".format(u, v, self.pg_base.get_path_name_of_node(u),
+                                                    self.pg_base.get_path_name_of_node(v)))
+            if path_added is False:
+                raise HiCAssemblerException("Can't add edge between {} and {} "
+                                            "corresponding to {} and {}".format(u, v,
+                                                                                self.pg_base.get_path_name_of_node(u),
+                                                                                self.pg_base.get_path_name_of_node(v)))
         else:
             self.pg_base.add_edge(u, v, weight=weight)
 

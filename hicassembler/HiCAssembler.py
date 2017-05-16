@@ -8,10 +8,6 @@ from hicexplorer.iterativeCorrection import iterativeCorrection
 from hicexplorer.reduceMatrix import reduce_matrix
 import hicexplorer.hicFindTADs as hicFindTADs
 from functools import wraps
-import re
-from Bio import SeqIO
-from Bio.Alphabet import generic_dna
-
 
 import logging
 log = logging.getLogger("HiCAssembler")
@@ -131,7 +127,7 @@ class HiCAssembler:
         -------
 
         """
-        self.plot_matrix(out_file_prefix + "_before_assembly.pdf", title="Before assembly")
+        self.plot_matrix(self.out_file_prefix + "_before_assembly.pdf", title="Before assembly")
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
         for iteration in range(3):
             n50 = self.scaffolds_graph.compute_N50()
@@ -155,7 +151,7 @@ class HiCAssembler:
                                                               hub_solving_method='remove weakest')
 
             self.iteration = iteration
-            self.plot_matrix(out_file_prefix + "_after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
+            self.plot_matrix(self.out_file_prefix + "_after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
 
         print self.N50
         if 2==1:

@@ -432,9 +432,8 @@ class PathGraph(object):
         >>> S = PathGraph()
         >>> S.add_path([0,1,2,3], name='test')
         >>> S.delete_edge(1,2)
-        >>> S.path
-        {'test_split_A': [0, 1], 'test_split_B': [2, 3]}
-
+        >>> S.path == {'test/1': [0, 1], 'test/2': [2, 3]}
+        True
         """
         # check that u and v are in the same path
         if self.path_id[u] != self.path_id[v]:

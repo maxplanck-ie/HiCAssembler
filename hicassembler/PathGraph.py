@@ -240,8 +240,11 @@ class PathGraph(object):
         if len(nodes) != len(seen):
             raise PathGraphException("Path contains repeated elements. Can't add path")
 
-        if name is not None and name not in self.path:
-            path_id = name
+        if name is not None:
+            if name not in self.path:
+                path_id = name
+            else:
+                raise PathGraphException("Path name already exists {}".format(name))
         else:
             # get a new path_id
             path_id = len(self.path)

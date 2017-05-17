@@ -199,20 +199,26 @@ class Scaffolds(object):
         to_remove_paths = []
 
         paths_total = 0
+        length_total = 0
+        removed_length_total = 0
         for path in self.get_all_paths():
             paths_total += 1
             length = (sum([self.pg_base.node[x]['length'] for x in path]))
+            length_total += length
 
             if length <= min_length:
-                log.debug("Removing path {}".format(self.pg_base.get_path_name_of_node(x)))
+                log.debug("Removing path {}, length {}".format(self.pg_base.get_path_name_of_node(x), length))
                 to_remove.extend(path)
                 to_remove_paths.append(path)
+                removed_length_total += length
 
         if len(to_remove) and len(to_remove) < self.matrix.shape[0]:
-            log.debug("Removing {} scaffolds/contigs, containing {} bins, because they "
-                      "are shorter than {} ".format(len(to_remove_paths),
-                                                    len(to_remove),
-                                                    min_length))
+            log.debug("Removing {num_scaffolds} scaffolds/contigs, containing {num_bins} bins "
+                      "({fraction:.3f}% of total assembly length), because they "
+                      "are shorter than {min_length} ".format(num_scaffolds=len(to_remove_paths),
+                                                              num_bins=len(to_remove),
+                                                              fraction=100 * float(removed_length_total) / length_total,
+                                                              min_length=min_length))
 
             self.hic.removeBins(to_remove)
             self._init_path_graph()
@@ -435,7 +441,7 @@ class Scaffolds(object):
                     initial_path = self.pg_initial[self.pg_base.node[sub_path[0]]['initial_path'][0]]
                 # prepare new PathGraph nodes
                 attr = {'length': sum([self.pg_base.node[x]['length'] for x in sub_path]),
-                        'name': "{}/{}".format(path_name, index),
+                        'name': "{}_{}".format(path_name, index),
                         'initial_path': initial_path}
 
                 pg_merge.add_node(i, attr_dict=attr)

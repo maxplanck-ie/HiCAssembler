@@ -266,7 +266,7 @@ class Scaffolds(object):
         Examples
         --------
         >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-2', 0, 30, 1),
-        ... ('c-3', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        ... ('c-3', 0, 10, 1), ('c-3', 20, 30, 1), ('c-3', 0, 10, 1)]
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
 
@@ -276,7 +276,7 @@ class Scaffolds(object):
         The sorted cumulative sum is:
         [10, 20, 30, 50, 80]
         >>> S.compute_N50(min_length=2)
-        20
+        30
 
         """
         length = np.sort(np.fromiter(self.get_paths_length(), int))
@@ -342,9 +342,9 @@ class Scaffolds(object):
         >>> len(S.pg_base.node)
         3
         >>> S.pg_base.node
-        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0/0'}, \
-1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-0/1'}, \
-2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-0/2'}}
+        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0_0'}, \
+1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-0_1'}, \
+2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-0_2'}}
 
         Same matrix as before, but this time normalized by mean
         >>> S = Scaffolds(hic)
@@ -397,7 +397,7 @@ class Scaffolds(object):
         >>> S.pg_base.path
         {'c-2': [2], 'c-1': [1], 'c-0': [0]}
         >>> S.pg_base.node
-        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0/0'}, 1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1/0'}, 2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2/0'}}
+        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0_0'}, 1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1_0'}, 2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2_0'}}
         """
 
         paths_flatten = []

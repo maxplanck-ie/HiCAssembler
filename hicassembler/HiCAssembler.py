@@ -17,8 +17,7 @@ log.setLevel(logging.DEBUG)
 
 POWER_LAW_DECAY = 2**(-1.08)  # expected exponential decay at 2*distance
 
-MERGE_LENGTH = 2000  # after the first iteration, contigs are merged as multiples of this length
-MIN_LENGTH = 200000  # minimum contig or PE_scaffold length to consider
+MIN_LENGTH = 300000  # minimum contig or PE_scaffold length to consider
 MIN_MAD = -0.5  # minimum zscore row contacts to filter low scoring bins
 MAX_MAD = 50  # maximum zscore row contacts
 MAX_INT_PER_LENGTH = 100  # maximum number of HiC pairs per length of contig
@@ -26,7 +25,6 @@ MIN_COVERAGE = 0.7
 TEMP_FOLDER = '/tmp/'
 ITER = 40
 MIN_MATRIX_VALUE = 5
-MERGE_LENGTH_GROW = 1.6
 
 SIM = False
 EXP = True
@@ -48,7 +46,7 @@ def timeit(fn):
 
 
 class HiCAssembler:
-    def __init__(self, hic_file_name, fasta_file, out_file_prefix, min_mad=MIN_MAD, max_mad=MAX_MAD):
+    def __init__(self, hic_file_name, fasta_file, out_folder, min_mad=MIN_MAD, max_mad=MAX_MAD):
         """
         Prepares a hic matrix for assembly.
         It is expected that initial contigs or scaffolds contain bins
@@ -86,7 +84,7 @@ class HiCAssembler:
             self.hic = merge_bins(self.hic, num_bins)
 
         self.fasta_file = fasta_file
-        self.out_file_prefix = out_file_prefix
+        self.out_folder = out_folder
 
         # remove empty bins
         self.hic.maskBins(self.hic.nan_bins)
@@ -127,7 +125,7 @@ class HiCAssembler:
         -------
 
         """
-        self.plot_matrix(self.out_file_prefix + "_before_assembly.pdf", title="Before assembly")
+        self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly")
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
         for iteration in range(3):
             n50 = self.scaffolds_graph.compute_N50()
@@ -154,7 +152,7 @@ class HiCAssembler:
                                                                   hub_solving_method='remove weakest')
 
             self.iteration = iteration
-            self.plot_matrix(self.out_file_prefix + "_after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
+            self.plot_matrix(self.out_folder + "/after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
 
         print self.N50
 
@@ -171,8 +169,8 @@ class HiCAssembler:
         """
         log.info("Detecting misassemblies")
         ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=50, use_zscore=False)
-        tad_score_file = self.out_file_prefix + "_misassembly_score.txt"
-        reduced_matrix_file = self.out_file_prefix + "_hic_reduced_matrix.h5"
+        tad_score_file = self.out_folder + "/misassembly_score.txt"
+        reduced_matrix_file = self.out_folder + "/hic_reduced_matrix.h5"
         import os.path
         # check if the computation for the misassembly score was already done
         if not os.path.isfile(tad_score_file):

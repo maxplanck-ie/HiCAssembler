@@ -126,11 +126,11 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
     for super_c in super_scaffolds:
         sequence = Seq("")
         id = []
-        for contig_id, strand in super_c:
+        for contig_id, start, end, strand in super_c:
             if strand == '-':
-                sequence += record_dict[contig_id].reverse_complement()
+                sequence += record_dict[contig_id][start:end].reverse_complement()
             else:
-                sequence += record_dict[contig_id]
+                sequence += record_dict[contig_id][start:end]
             id.append("{}_{}".format(contig_id, strand))
 
         id = "_".join(id)

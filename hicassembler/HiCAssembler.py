@@ -18,7 +18,7 @@ log.setLevel(logging.DEBUG)
 POWER_LAW_DECAY = 2**(-1.08)  # expected exponential decay at 2*distance
 
 MERGE_LENGTH = 2000  # after the first iteration, contigs are merged as multiples of this length
-MIN_LENGTH = 300000  # minimum contig or PE_scaffold length to consider
+MIN_LENGTH = 200000  # minimum contig or PE_scaffold length to consider
 MIN_MAD = -0.5  # minimum zscore row contacts to filter low scoring bins
 MAX_MAD = 50  # maximum zscore row contacts
 MAX_INT_PER_LENGTH = 100  # maximum number of HiC pairs per length of contig
@@ -136,136 +136,29 @@ class HiCAssembler:
             log.debug("iteration: {}\tN50: {:,}".format(iteration, n50))
             self.N50.append(n50)
 
-            self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice', use_log=False)
-            # self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice', use_log=False)
-            stats = self.scaffolds_graph.get_stats_per_split()
-            try:
-                conf_score = stats[2]['median'] * 0.5
-            except:
-                conf_score = np.percentile(self.scaffolds_graph.matrix.data, 80)
-            log.info("Confidence score set to: {}".format(conf_score))
-
-#            self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=2e3,
-#                                                          hub_solving_method='remove weakest')
-            self.scaffolds_graph.join_paths_max_span_tree(None, node_degree_threshold=2e3,
+            if iteration == 0:
+                # the first iteration is is more stringent
+                self.scaffolds_graph.split_and_merge_contigs(num_splits=3, normalize_method='ice', use_log=False)
+                stats = self.scaffolds_graph.get_stats_per_split()
+                try:
+                    conf_score = stats[2]['median'] * 0.5
+                except:
+                    conf_score = np.percentile(self.scaffolds_graph.matrix.data, 80)
+                log.info("Confidence score set to: {}".format(conf_score))
+                self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=2e3,
                                                               hub_solving_method='remove weakest')
+            else:
+                self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice', use_log=False)
+                conf_score = np.percentile(self.scaffolds_graph.matrix.data, 80)
+                self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=2e3,
+                                                                  hub_solving_method='remove weakest')
 
             self.iteration = iteration
             self.plot_matrix(self.out_file_prefix + "_after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
 
         print self.N50
-        if 2==1:
-            # remove bins that are 1/3 the N50
-            #self.scaffolds_graph.remove_small_paths(n50 * 0.01)
-            # the matrix may be of higher resolution than needed.
-            # For example, if dpnII RE was used the bins could be
-            # merged.
-
-            mean_len, std, stats = self.scaffolds_graph.get_stats_per_distance()
-            self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'])
-            if iteration == 0:
-                self.scaffolds_graph.reset_pg_initial()
-#            self.scaffolds_graph.join_paths_max_span_tree(stats[2]['median'] * 0.1)
-            self.plot_matrix("/tmp/matrix_iter_{}.pdf".format(iteration))
-
-
-            if iteration == 0:
-                self.scaffolds_graph.merge_to_size(target_length=self.scaffolds_graph.paths_min,
-                                                   reset_base_paths=False)
-            else:
-                self.scaffolds_graph.merge_to_size(target_length=float(n50)/5,
-                                                   reset_base_paths=False)
 
         return self.get_contig_order()
-
-        # turn sparse matrix into graph
-        self.scaffolds_graph.hic.diagflat(0)
-        mat = self.scaffolds_graph.hic.matrix.copy()
-
-        #mat.data[mat.data < stats[1]['median'] * 0.75] = 0
-        #mat.eliminate_zeros()
-        #mat.data = 1.0 / mat.data
-        G = nx.from_scipy_sparse_matrix(mat)
-        import ipdb;ipdb.set_trace()
-        nx.write_gml(G, 'data/G.gml')
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-        plt.title("test")
-        nx.draw(G, pos=nx.spring_layout(G), with_labels=True )
-        plt.savefig("/tmp/G.png")
-
-        mst = nx.minimum_spanning_tree(G, weight='weight')
-        plt.title("test")
-        nx.draw(mst, pos=nx.spring_layout(mst), with_labels=True)
-        plt.savefig("/tmp/G_mst.png")
-
-        exit()
-        self.G = self.get_nearest_neighbors_2(self.paths, min_neigh=2, trans=False,
-                                              max_int=max_int,
-                                              threshold=confident_threshold)
-
-        log.debug(((np.arange(1, ITER)**MERGE_LENGTH_GROW)*MERGE_LENGTH).astype(int))
-        # for iter_num in range(1,ITER+1):
-        for merge_length in ((np.arange(1, ITER)**MERGE_LENGTH_GROW)*MERGE_LENGTH).astype(int):
-            self.iteration += 1
-            max_int = self.reduce_to_flanks_and_center(flank_length=merge_length)
-            #print_prof_data()
-            if self.matrix.shape[0] < 2:
-                log.info("No more to merge")
-                self.compute_N50(merge_length)
-                return
-            # create a graph containing the nearest neighbors
-#            import pdb;pdb.set_trace()
-#            self.G = self.get_nearest_neighbors(self.paths, min_neigh=2, trans=False,
-#                                                max_int = max_int,
-#                                                threshold=confident_threshold)
-            import ipdb;ipdb.set_trace()
-            confident_threshold = stats[2][1]['median']
-            if self.iteration == 1:
-                confident_threshold *= 1.5
-            if 1 < self.iteration <= 4:
-                confident_threshold *= 1.1
-            if self.iteration > 4:
-                confident_threshold *= 0.7
-            self.G = self.get_nearest_neighbors_2(self.paths, min_neigh=2, trans=False,
-                                                  max_int=max_int,
-                                                  threshold=confident_threshold)
-
-            self.prev_paths = self.scaffolds_graph.get_all_paths()
-            self.assemble_super_contigs(self.G, self.paths, max_int)
-            orphans = [x for x in self.scaffolds_graph.get_all_paths() if len(x) == 1]
-            log.info("in total there are {} orphans".format(len(orphans)))
-            small = [x for x in self.scaffolds_graph.get_paths_length() if x <= merge_length]
-            if len(small):
-                log.info("in total there are {} scaffolds smaller than {}. "
-                         "Median {}".format(len(small), merge_length, np.mean(small)))
-
-            self.compute_N50(merge_length)
-            if self.prev_paths == self.scaffolds_graph.get_all_paths():
-                print "paths not changing. Returning after {} iterations, "\
-                    "merge_length: {}".format(self.iteration, merge_length)
-#                break
-            # get the average length of all scaffolds that are larger
-            # than the current merge_length
-            """
-            try:
-                merge_length = int(np.median([x for x in
-                                            self.scaffolds_graph.get_paths_length()
-                                            if x >= merge_length]))/8
-            except:
-                merge_length *= 1.3
-
-            if merge_length < prev_merge_length:
-                merge_length = prev_merge_length * 2
-            if merge_length == prev_merge_length:
-                merge_length *= 2
-            if merge_length > 5e6:
-                log.info("Large merging value reached {}".format(merge_length))
-                return
-            prev_merge_length = merge_length
-            """
-        return
 
     def split_misassemblies(self, hic_file_name):
         """
@@ -403,15 +296,32 @@ class HiCAssembler:
         self.hic.matrix.eliminate_zeros()
 
     def get_contig_order(self):
+        import re
         super_scaffolds = []
+
         for path in self.scaffolds_graph.pg_initial.path.values():
             prev_contig_name = None
             prev_node_id = None
             scaffold = []
+            scaff_start = None
+            scaff_end = None
             for node in path:
                 contig_name = self.scaffolds_graph.pg_initial.node[node]['name']
+                #check if nond name indicates that it was splited (by ending in '/n'
+                res = re.search("(.*?)/(\d+)$", contig_name)
+                if res is not None:
+                    contig_name = res.group(1)
+
+                start = self.scaffolds_graph.pg_initial.node[node]['start']
+                if scaff_start is None or start < scaff_start:
+                    scaff_start = start
+
+                end = self.scaffolds_graph.pg_initial.node[node]['end']
+                if scaff_end is None or scaff_end < end:
+                    scaff_end = end
+
                 if prev_contig_name is not None and contig_name != prev_contig_name:
-                    scaffold.append((prev_contig_name, direction))
+                    scaffold.append((prev_contig_name, scaff_start, scaff_end, direction))
                 else:
                     if node > prev_node_id:
                         direction = '+'
@@ -419,7 +329,7 @@ class HiCAssembler:
                         direction = '-'
                 prev_contig_name = contig_name
                 prev_node_id = node
-            scaffold.append((contig_name, direction))
+            scaffold.append((contig_name, scaff_start, scaff_end, direction))
             super_scaffolds.append(scaffold)
         return super_scaffolds, self.scaffolds_graph.get_all_paths()
 

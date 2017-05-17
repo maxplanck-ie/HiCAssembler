@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 #-*- coding: utf-8 -*-
 import argparse
+import os
+import errno
 
 import numpy as np
 
@@ -11,8 +13,6 @@ import logging as log
 
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from matplotlib import cm
 debug = 0
 
 TEMP_FOLDER = '/tmp/'
@@ -31,8 +31,8 @@ def parse_arguments(args=None):
         'the matrix row labels should include '
         'the position of the contig.')
 
-    parser.add_argument('--outFile', '-o',
-                        help='prefix for output files.',
+    parser.add_argument('--outFolder', '-o',
+                        help='folder were to save output files.',
                         required=True)
 
     parser.add_argument('--fasta', '-f',
@@ -122,15 +122,16 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
     from Bio.Seq import Seq
     record_dict = SeqIO.to_dict(SeqIO.parse(input_fasta, "fasta"))
     new_rec_list = []
-
-    for super_c in super_scaffolds:
+    nnn_seq = Seq('N'*200)
+    for idx, super_c in enumerate(super_scaffolds):
         sequence = Seq("")
-        id = []
+        id = ["Super-scaffold_{} ".format(idx + 1)]
         for contig_id, start, end, strand in super_c:
             if strand == '-':
                 sequence += record_dict[contig_id][start:end].reverse_complement()
             else:
                 sequence += record_dict[contig_id][start:end]
+            sequence += nnn_seq
             id.append("{}_{}".format(contig_id, strand))
 
         id = "_".join(id)
@@ -142,14 +143,21 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
         SeqIO.write(new_rec_list, handle, "fasta")
 
 
+def make_sure_path_exists(path):
+    try:
+        os.makedirs(path)
+    except OSError as exception:
+        if exception.errno != errno.EEXIST:
+            raise
+
+
 def main(args):
     # load matrix
-    basename = args.outFile
-    names_list = []
-    assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFile)
+    make_sure_path_exists(args.outFolder)
+    assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFolder)
 
     super_contigs, paths = assembl.assemble_contigs()
-    save_fasta(args.fasta, "super_scaffolds.fa", super_contigs)
+    save_fasta(args.fasta, args.outFile + "_super_scaffolds.fa", super_contigs)
 
     flat = []
     for contig in super_contigs:

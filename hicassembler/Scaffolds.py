@@ -137,7 +137,7 @@ class Scaffolds(object):
         if len(contig_path) > 1:
             self.pg_base.add_path(contig_path, name=label)
 
-    def get_all_paths(self):
+    def get_all_paths(self, initial=False):
         """Returns all paths in the graph.
         This is similar to get connected components in networkx
         but in this case, the order of the returned  paths
@@ -151,10 +151,14 @@ class Scaffolds(object):
         [[0, 1, 2], [3, 4], [5]]
         """
         seen = set()
-        for v in self.pg_base:
+        if initial and self.pg_initial is not None:
+            pathgraph = self.pg_initial
+        else:
+            pathgraph = self.pg_base
+        for v in pathgraph:
             if v not in seen:
-                yield self.pg_base[v]
-            seen.update(self.pg_base[v])
+                yield pathgraph[v]
+            seen.update(pathgraph[v])
 
     def remove_small_paths(self, min_length):
         """
@@ -386,6 +390,13 @@ class Scaffolds(object):
                 [ 8,  6,  8],
                 [ 8,  8,  6]])
 
+        # do a second round of split_and_merge after joining some contigs
+        >>> S.add_edge(0, 1)
+        >>> S.add_edge(1, 2)
+        >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
+        >>> S.matrix.todense()
+        matrix([[48]])
+
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='mean')
         >>> S.matrix.todense()
@@ -403,8 +414,7 @@ class Scaffolds(object):
         paths_flatten = []
         i = 0
         pg_merge = PathGraph()
-
-        for path in self.get_all_paths():
+        for path in self.get_all_paths(initial=True):
             # split_path has the form [[0, 1 ,2], [3, 4], [5, 6, 7]]
             split_path = Scaffolds.split_path(path, num_splits)
             # each sub path in the split_path list will become an index
@@ -425,25 +435,20 @@ class Scaffolds(object):
             # keep the original high resolution paths that form a contig. After this
             # merge, it is important to keep track of the original or base paths.
             merged_path = []
-            path_name = self.pg_base.get_path_name_of_node(path[0])
+            if self.pg_initial is not None:
+                path_name = self.pg_initial.get_path_name_of_node(path[0])
+            else:
+                path_name = self.pg_base.get_path_name_of_node(path[0])
             for index, sub_path in enumerate(split_path):
-                if self.pg_initial is None:
-                    initial_path = sub_path
+                if self.pg_initial is not None:
+                    length = sum([self.pg_initial.node[x]['length'] for x in sub_path])
                 else:
-                    if num_splits != 1:
-                        log.debug("num_splits > 1 are not supported")
-                        exit(1)
-                    # the initial path is obtained from the pg_initial graph by querying
-                    # the one of the 'initial' node ids. self.pg_initial[x] will return the whole path
-                    # for any x that belongs to the path.
-                    # self.pg_base.node[sub_path[0]] returns the node data for the first node id in the
-                    # sub_path and then ['initial_path'][0] gets the first 'initial' node id.
-                    initial_path = self.pg_initial[self.pg_base.node[sub_path[0]]['initial_path'][0]]
-                # prepare new PathGraph nodes
-                attr = {'length': sum([self.pg_base.node[x]['length'] for x in sub_path]),
-                        'name': "{}_{}".format(path_name, index),
-                        'initial_path': initial_path}
+                    length = sum([self.pg_base.node[x]['length'] for x in sub_path])
 
+                # prepare new PathGraph nodes
+                attr = {'length': length,
+                        'name': "{}_{}".format(path_name, index),
+                        'initial_path': sub_path}
                 pg_merge.add_node(i, attr_dict=attr)
 
                 merged_path.append(i)
@@ -458,9 +463,9 @@ class Scaffolds(object):
 
         reduce_paths = paths_flatten[:]
 
-        if use_log:
-            self.matrix.data = np.log1p(self.matrix.data)
-        reduced_matrix = reduce_matrix(self.matrix, reduce_paths, diagonal=True)
+        # if use_log:
+        #     self.matrix.data = np.log1p(self.matrix.data)
+        reduced_matrix = reduce_matrix(self.hic.matrix, reduce_paths, diagonal=True)
 
         if normalize_method == 'mean':
             self.matrix = Scaffolds.normalize_by_mean(reduced_matrix, reduce_paths)
@@ -1406,7 +1411,7 @@ class Scaffolds(object):
                 adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
                 # remove the weakest edges but only if either of the nodes is not a hub
                 for adj_node, attr in adj[:-2]:
-                    log.info("Removing weak edge {}-{} weight: {}".format(node, adj_node, attr['weight']))
+                    log.debug("Removing weak edge {}-{} weight: {}".format(node, adj_node, attr['weight']))
                     G.remove_edge(node, adj_node)
             if degree <= 2:
                 break
@@ -1541,7 +1546,7 @@ class Scaffolds(object):
                     self.pg_base.add_edge(u, v, weight=weight)
                     path_added = True
                 except PathGraphEdgeNotPossible:
-                    log.debug("*WARN* Can't add edge between {} and {} corresponding "
+                    log.debug("*WARN* Skipping add edge between {} and {} corresponding "
                               "to {} and {}".format(u, v, self.pg_base.get_path_name_of_node(u),
                                                     self.pg_base.get_path_name_of_node(v)))
             if path_added is False:

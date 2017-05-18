@@ -244,6 +244,7 @@ class PathGraph(object):
             if name not in self.path:
                 path_id = name
             else:
+                import ipdb;ipdb.set_trace()
                 raise PathGraphException("Path name already exists {}".format(name))
         else:
             # get a new path_id

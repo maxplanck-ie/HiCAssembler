@@ -3,6 +3,8 @@ from scipy.sparse import triu, lil_matrix
 import networkx as nx
 import inspect
 import time
+import os.path
+
 import hicexplorer.HiCMatrix as HiCMatrix
 from hicexplorer.iterativeCorrection import iterativeCorrection
 from hicexplorer.reduceMatrix import reduce_matrix
@@ -11,13 +13,15 @@ from functools import wraps
 
 import logging
 log = logging.getLogger("HiCAssembler")
-log.setLevel(logging.DEBUG)
+#log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 
 #log.basicConfig(format='%(levelname)s[%(funcName)s]:%(message)s', level=logging.DEBUG)
 
 POWER_LAW_DECAY = 2**(-1.08)  # expected exponential decay at 2*distance
 
-MIN_LENGTH = 300000  # minimum contig or PE_scaffold length to consider
+MIN_LENGTH = 50000  # minimum contig or PE_scaffold length to consider
+ZSCORE_THRESHOLD = -1.2 # zscore threshold to declare a boundary a misassembly
 MIN_MAD = -0.5  # minimum zscore row contacts to filter low scoring bins
 MAX_MAD = 50  # maximum zscore row contacts
 MAX_INT_PER_LENGTH = 100  # maximum number of HiC pairs per length of contig
@@ -70,29 +74,38 @@ class HiCAssembler:
 
         # replace the diagonal from the matrix by zeros
         # hic.diagflat(0)
-
-        log.info("Loading Hi-C matrix ... ")
-        self.hic = HiCMatrix.hiCMatrix(hic_file_name)
-        log.info("Finish")
-        binsize = self.hic.getBinSize()
-        if binsize < 25000:
-            # make an smaller matrix having bins of around 25.000 bp
-            num_bins = 25000 / binsize
-
-            from hicexplorer.hicMergeMatrixBins import merge_bins
-            log.info("Reducing matrix size to 25.000 bp (number of bins merged: {})".format(num_bins))
-            self.hic = merge_bins(self.hic, num_bins)
-
         self.fasta_file = fasta_file
         self.out_folder = out_folder
 
-        # remove empty bins
-        self.hic.maskBins(self.hic.nan_bins)
-        try:
-            del self.hic.orig_bin_ids
-            del self.hic.orig_cut_intervals
-        except:
-            pass
+        log.info("Loading Hi-C matrix ... ")
+        # check is a lower resolution matrix is available
+        merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"
+        # check if the computation for the misassembly score was already done
+        if os.path.isfile(merged_bins_matrix_file):
+            log.info("Found reduced matrix file {}".format(merged_bins_matrix_file))
+            self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
+        else:
+            self.hic = HiCMatrix.hiCMatrix(hic_file_name)
+            log.info("Finish")
+            binsize = self.hic.getBinSize()
+            if binsize < 25000:
+                # make an smaller matrix having bins of around 25.000 bp
+                num_bins = 25000 / binsize
+
+                from hicexplorer.hicMergeMatrixBins import merge_bins
+                log.info("Reducing matrix size to 25.000 bp (number of bins merged: {})".format(num_bins))
+                self.hic = merge_bins(self.hic, num_bins)
+                # remove empty bins
+                self.hic.maskBins(self.hic.nan_bins)
+                try:
+                    del self.hic.orig_bin_ids
+                    del self.hic.orig_cut_intervals
+                    self.hic.correction_factors = None
+                except:
+                    pass
+
+                self.hic.save(merged_bins_matrix_file)
+
 
         self.min_mad = min_mad
         self.max_mad = max_mad
@@ -110,9 +123,11 @@ class HiCAssembler:
         # try to find contigs that probably should be separated
         self.split_misassemblies(hic_file_name)
 
+        mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
         self.scaffolds_graph.remove_small_paths(MIN_LENGTH)
-
+        assert mat_size != self.scaffolds_graph.hic.matrix.shape
+        import ipdb; ipdb.set_trace()
         log.debug("Size of matrix is {}".format(self.hic.matrix.shape[0]))
 
         # compute initial N50
@@ -127,34 +142,52 @@ class HiCAssembler:
         """
         self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly")
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(3):
+        for iteration in range(4):
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
 
             log.debug("iteration: {}\tN50: {:,}".format(iteration, n50))
             self.N50.append(n50)
 
-            if iteration == 0:
-                # the first iteration is is more stringent
+            # the first iteration is is more stringent
+            if iteration < 2:
                 self.scaffolds_graph.split_and_merge_contigs(num_splits=3, normalize_method='ice', use_log=False)
                 stats = self.scaffolds_graph.get_stats_per_split()
-                try:
-                    conf_score = stats[2]['median'] * 0.5
-                except:
-                    conf_score = np.percentile(self.scaffolds_graph.matrix.data, 80)
-                log.info("Confidence score set to: {}".format(conf_score))
-                self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=2e3,
-                                                              hub_solving_method='remove weakest')
+                conf_score = np.percentile(self.scaffolds_graph.matrix.data, 80 - (iteration)*20)
+
+                #conf_score = stats[3]['median'] * 0.5
+                # remove paths smaller than the 3rd quantile
             else:
                 self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice', use_log=False)
-                conf_score = np.percentile(self.scaffolds_graph.matrix.data, 80)
-                self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=2e3,
-                                                                  hub_solving_method='remove weakest')
+                conf_score = np.percentile(self.scaffolds_graph.matrix.data, 30)
 
-            self.iteration = iteration
+            log.info("Confidence score set to: {}".format(conf_score))
+            self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=2e3,
+                                                          hub_solving_method='remove weakest')
+
             self.plot_matrix(self.out_folder + "/after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
 
+            if iteration < 2:
+                self.scaffolds_graph.remove_small_paths(50000*(iteration + 2))
+            else:
+                self.put_back_smal_scaffolds()
         print self.N50
+
+
+    def put_back_smal_scaffolds(self):
+        """
+        Identifies scaffolds that where removed from the Hi-C assembly and
+        tries to find their correct location.
+        Returns
+        -------
+
+        """
+        orig_scaff = Scaffolds(self.hic)
+        # identify removed scaffolds
+        removed = {}
+        import ipdb;ipdb.set_trace()
+        #for name in orig_scaff.path_id.keys():
+            #if name not in
 
         return self.get_contig_order()
 
@@ -171,7 +204,6 @@ class HiCAssembler:
         ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=50, use_zscore=False)
         tad_score_file = self.out_folder + "/misassembly_score.txt"
         reduced_matrix_file = self.out_folder + "/hic_reduced_matrix.h5"
-        import os.path
         # check if the computation for the misassembly score was already done
         if not os.path.isfile(tad_score_file):
             ft.compute_spectra_matrix()
@@ -201,7 +233,7 @@ class HiCAssembler:
         from hicassembler.PathGraph import PathGraphException
 
         # select as misassemblies all boundaries that have a zscore lower than 1.64 (p-value 0.05)
-        for idx in np.flatnonzero(zscore < -1.4):
+        for idx in np.flatnonzero(zscore < ZSCORE_THRESHOLD):
             # split the scaffolds at this position
 
             # find the bins that overlap with the misassembly
@@ -212,21 +244,19 @@ class HiCAssembler:
                 # detected misassembly
                 log.info("Misassembly detected at {}:{}-{}".format(scaffold[idx], start[idx], end[idx]))
                 # the delete edge may fail in case the bin_id belongs to other scaffold
-                try:
-                    self.scaffolds_graph.delete_edge(bin_id - 1, bin_id)
-                except PathGraphException:
-                    pass
+                # try:
+                #     self.scaffolds_graph.delete_edge(bin_id - 1, bin_id)
+                # except PathGraphException:
+                #     pass
                 try:
                     self.scaffolds_graph.delete_edge(bin_id, bin_id + 1)
                 except PathGraphException:
                     pass
-                try:
-                    self.scaffolds_graph.delete_edge(bin_id + 1, bin_id + 2)
-                except PathGraphException:
-                    pass
+                # try:
+                #     self.scaffolds_graph.delete_edge(bin_id + 1, bin_id + 2)
+                # except PathGraphException:
+                #     pass
 
-                if len(self.scaffolds_graph.pg_base.node) != self.scaffolds_graph.hic.matrix.shape[0]:
-                    import pdb;pdb.set_trace()
                 assert len(self.scaffolds_graph.pg_base.node) == self.scaffolds_graph.hic.matrix.shape[0]
         log.info("{} misassemblies were removed".format(len(np.flatnonzero(zscore < -1.64))))
 

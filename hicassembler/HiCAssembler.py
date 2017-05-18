@@ -4,12 +4,15 @@ import networkx as nx
 import inspect
 import time
 import os.path
+import copy
+
 
 import hicexplorer.HiCMatrix as HiCMatrix
 from hicexplorer.iterativeCorrection import iterativeCorrection
 from hicexplorer.reduceMatrix import reduce_matrix
 import hicexplorer.hicFindTADs as hicFindTADs
 from functools import wraps
+from hicassembler.Scaffolds import Scaffolds
 
 import logging
 log = logging.getLogger("HiCAssembler")
@@ -95,17 +98,16 @@ class HiCAssembler:
                 from hicexplorer.hicMergeMatrixBins import merge_bins
                 log.info("Reducing matrix size to 25.000 bp (number of bins merged: {})".format(num_bins))
                 self.hic = merge_bins(self.hic, num_bins)
-                # remove empty bins
-                self.hic.maskBins(self.hic.nan_bins)
-                try:
-                    del self.hic.orig_bin_ids
-                    del self.hic.orig_cut_intervals
-                    self.hic.correction_factors = None
-                except:
-                    pass
+            # remove empty bins
+            self.hic.maskBins(self.hic.nan_bins)
+            try:
+                del self.hic.orig_bin_ids
+                del self.hic.orig_cut_intervals
+                self.hic.correction_factors = None
+            except:
+                pass
 
-                self.hic.save(merged_bins_matrix_file)
-
+            self.hic.save(merged_bins_matrix_file)
 
         self.min_mad = min_mad
         self.max_mad = max_mad
@@ -115,19 +117,17 @@ class HiCAssembler:
 
         #self.remove_noise_from_matrix()
 
-        # build scaffolds graph. Bins on the same contig are
-        # put together into a path (a type of graph with max degree = 2)
-        from hicassembler.Scaffolds import Scaffolds
-        self.scaffolds_graph = Scaffolds(self.hic)
-
         # try to find contigs that probably should be separated
         self.split_misassemblies(hic_file_name)
+
+        # build scaffolds graph. Bins on the same contig are
+        # put together into a path (a type of graph with max degree = 2)
+        self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic))
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
         self.scaffolds_graph.remove_small_paths(MIN_LENGTH)
         assert mat_size != self.scaffolds_graph.hic.matrix.shape
-        import ipdb; ipdb.set_trace()
         log.debug("Size of matrix is {}".format(self.hic.matrix.shape[0]))
 
         # compute initial N50
@@ -172,7 +172,7 @@ class HiCAssembler:
             else:
                 self.put_back_smal_scaffolds()
         print self.N50
-
+        return self.get_contig_order()
 
     def put_back_smal_scaffolds(self):
         """
@@ -183,13 +183,18 @@ class HiCAssembler:
 
         """
         orig_scaff = Scaffolds(self.hic)
+        orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method='ice')
+        G = orig_scaff.make_nx_graph()
+        import ipdb;ipdb.set_trace()
         # identify removed scaffolds
         removed = {}
-        import ipdb;ipdb.set_trace()
-        #for name in orig_scaff.path_id.keys():
-            #if name not in
+        orig_scaff = self.hic.chrBinBoundaries.keys()
+        for scaff in orig_scaff:
+            if scaff not in self.scaffolds_graph.hic.chrBinBoundaries.keys():
+                log.info("Inserting {} back into super-scaffolds".format(scaff))
+                # idea 1: look at the closest neighbors of scaff and
+                # use best permutation to find how to insert it.
 
-        return self.get_contig_order()
 
     def split_misassemblies(self, hic_file_name):
         """
@@ -229,35 +234,40 @@ class HiCAssembler:
         tad_score = np.array(tad_score)
         # compute a zscore of the tad_score to select the lowest ranking boundaries.
         zscore = (tad_score - np.mean(tad_score)) / np.std(tad_score)
-
-        from hicassembler.PathGraph import PathGraphException
+        new_cut_intervals = self.hic.cut_intervals[:]
 
         # select as misassemblies all boundaries that have a zscore lower than 1.64 (p-value 0.05)
+        prev_scaff = None
+        bin_ids = []
+
+        def rename_cut_intervals(id_list, scaff_name):
+            scaff_bins = self.hic.getChrBinRange(scaff_name)
+            # remove splits at the start or end of chromosome as they are most likely
+            # false positives
+            id_list = sorted([x for x in id_list if x not in [scaff_bins[0], scaff_bins[1] - 1]])
+            part_number = 1
+            if len(id_list) > 0:
+                for matrix_bin in range(scaff_bins[0], scaff_bins[1]):
+                    name, cut_start, cut_end, extra = new_cut_intervals[matrix_bin]
+                    new_name = "{}/{}".format(name, part_number)
+                    new_cut_intervals[matrix_bin] = (new_name, cut_start, cut_end, extra)
+                    if matrix_bin in id_list:
+                        part_number += 1
+
         for idx in np.flatnonzero(zscore < ZSCORE_THRESHOLD):
             # split the scaffolds at this position
+            if prev_scaff is not None and scaffold[idx] != prev_scaff:
+                rename_cut_intervals(bin_ids, prev_scaff)
+                bin_ids = []
 
             # find the bins that overlap with the misassembly
-            to_split_intervals = sorted(self.scaffolds_graph.hic.interval_trees[scaffold[idx]][start[idx]:end[idx]])
-            for interval_bin in to_split_intervals:
-                bin_id = interval_bin.data
-                # remove also the bin before and the bin after to avoid misasembled parts around the
-                # detected misassembly
-                log.info("Misassembly detected at {}:{}-{}".format(scaffold[idx], start[idx], end[idx]))
-                # the delete edge may fail in case the bin_id belongs to other scaffold
-                # try:
-                #     self.scaffolds_graph.delete_edge(bin_id - 1, bin_id)
-                # except PathGraphException:
-                #     pass
-                try:
-                    self.scaffolds_graph.delete_edge(bin_id, bin_id + 1)
-                except PathGraphException:
-                    pass
-                # try:
-                #     self.scaffolds_graph.delete_edge(bin_id + 1, bin_id + 2)
-                # except PathGraphException:
-                #     pass
+            to_split_intervals = sorted(self.hic.interval_trees[scaffold[idx]][start[idx]:end[idx]])
+            bin_ids.extend(sorted([interval_bin.data for interval_bin in to_split_intervals]))
+            prev_scaff = scaffold[idx]
 
-                assert len(self.scaffolds_graph.pg_base.node) == self.scaffolds_graph.hic.matrix.shape[0]
+        rename_cut_intervals(bin_ids, prev_scaff)
+
+        self.hic.setCutIntervals(new_cut_intervals)
         log.info("{} misassemblies were removed".format(len(np.flatnonzero(zscore < -1.64))))
 
     def plot_matrix(self, filename, title='Assembly results',
@@ -368,7 +378,6 @@ class HiCAssembler:
         -------
         """
         log.debug("reordering matrix")
-        import copy
         hic = copy.deepcopy(self.scaffolds_graph.hic)
         order_list = []
         from collections import OrderedDict

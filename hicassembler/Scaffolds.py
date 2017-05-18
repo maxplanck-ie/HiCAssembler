@@ -5,7 +5,6 @@ import time
 import hicexplorer.HiCMatrix as HiCMatrix
 from hicassembler.PathGraph import PathGraph, PathGraphEdgeNotPossible, PathGraphException
 
-from hicassembler.HiCAssembler import HiCAssemblerException
 from hicexplorer.reduceMatrix import reduce_matrix
 from hicexplorer.iterativeCorrection import iterativeCorrection
 from functools import wraps
@@ -285,10 +284,10 @@ class Scaffolds(object):
         """
         length = np.sort(np.fromiter(self.get_paths_length(), int))
         if len(length) == 0:
-            raise HiCAssemblerException("No paths. Can't compute N50")
+            raise ScaffoldException ("No paths. Can't compute N50")
         length = length[length > min_length]
         if len(length) == 0:
-            raise HiCAssemblerException("No paths with length > {}. Can't compute N50".format(min_length))
+            raise ScaffoldException ("No paths with length > {}. Can't compute N50".format(min_length))
         cumsum = np.cumsum(length)
 
         # find the index at which the cumsum length is half the total length
@@ -680,9 +679,7 @@ class Scaffolds(object):
 
         # reset the hic matrix object
         self.hic.matrix = self.matrix
-        self.hic.cut_intervals = cut_intervals
-        self.hic.interval_trees, self.hic.chrBinBoundaries = \
-            self.hic.intervalListToIntervalTree(self.hic.cut_intervals)
+        self.hic.setCutIntervals(cut_intervals)
 
     @staticmethod
     def split_path(path, num_parts):
@@ -931,7 +928,7 @@ class Scaffolds(object):
 
         # get all paths (connected components) longer than 1
         if len(self.pg_base.path) == 0:
-            raise HiCAssemblerException("Print no paths found\n")
+            raise ScaffoldException ("Print no paths found\n")
 
         # use all paths to estimate distances
         dist_dict = dict()
@@ -1007,7 +1004,7 @@ class Scaffolds(object):
 
         # get all paths (connected components) longer than 1
         if len(self.pg_base.path) == 0:
-            raise HiCAssemblerException("Print no paths found\n")
+            raise ScaffoldException ("Print no paths found\n")
 
         # use all paths to estimate distances
         dist_dict = dict()
@@ -1425,7 +1422,7 @@ class Scaffolds(object):
             else:
                 try:
                     self.add_edge(u, v, weight=data['weight'])
-                except HiCAssemblerException as e:
+                except ScaffoldException  as e:
                     log.warn(e)
                     pass
 
@@ -1466,7 +1463,7 @@ class Scaffolds(object):
 
         nxG = nx.Graph()
         for node_id, node in self.pg_base.node.iteritems():
-            # for saving, numpy number types or lists, are not accepted
+            # when saving a networkx object, numpy number types or lists, are not accepted
             nn = node.copy()
             for attr, value in nn.iteritems():
                 if isinstance(value, np.int64):
@@ -1550,7 +1547,7 @@ class Scaffolds(object):
                               "to {} and {}".format(u, v, self.pg_base.get_path_name_of_node(u),
                                                     self.pg_base.get_path_name_of_node(v)))
             if path_added is False:
-                raise HiCAssemblerException("Can't add edge between {} and {} "
+                raise ScaffoldException ("Can't add edge between {} and {} "
                                             "corresponding to {} and {}".format(u, v,
                                                                                 self.pg_base.get_path_name_of_node(u),
                                                                                 self.pg_base.get_path_name_of_node(v)))
@@ -1637,7 +1634,7 @@ class Scaffolds(object):
                 except PathGraphEdgeNotPossible:
                     pass
             if path_added is False:
-                raise HiCAssemblerException("Can't add edge between {} ({}) and {} ({})".format(u, v,
+                raise ScaffoldException ("Can't add edge between {} ({}) and {} ({})".format(u, v,
                                                                                                 self.pg_base.get_path_name_of_node(u),
                                                                                                 self.pg_base.get_path_name_of_node(v)))
 
@@ -1933,7 +1930,7 @@ class Scaffolds(object):
         # check if the edge already exists
         if self.has_edge(u, v):
             message = "Edge between {} and {} already exists".format(u, v)
-            raise HiCAssemblerException(message)
+            raise ScaffoldException (message)
 
         # check if the node has less than 2 edges
         for node in [u, v]:
@@ -1942,14 +1939,14 @@ class Scaffolds(object):
                           "is not a flaking node ({}, {}). ".format(u, v, node,
                                                                     self.pg_base.predecessors(node),
                                                                     self.pg_base.successors(node))
-                raise HiCAssemblerException(message)
+                raise ScaffoldException (message)
 
         # check if u an v are the two extremes of a path,
         # joining them will create a loop
         if self.pg_base.degree(u) == 1 and self.pg_base.degree(v) == 1:
             if v in self.pg_base[u]:
                 message = "The edges {}, {} form a closed loop.".format(u, v)
-                raise HiCAssemblerException(message)
+                raise ScaffoldException (message)
 
     def get_neighbors(self, u):
         """
@@ -1970,6 +1967,9 @@ class Scaffolds(object):
     def save_network(self, file_name):
         nx.write_gml(self.pg_base, file_name)
 
+
+class ScaffoldException(Exception):
+        """Base class for exceptions in Scaffold."""
 
 def get_test_matrix(cut_intervals=None, matrix=None):
     hic = HiCMatrix.hiCMatrix()

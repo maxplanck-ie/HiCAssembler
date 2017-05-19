@@ -114,7 +114,8 @@ class Scaffolds(object):
         self.matrix = self.hic.matrix.copy()
         self.pg_base = PathGraph()
         self.pg_initial = None
-
+        self.scaffold = PathGraph()
+        scaff_id = 0
         for idx, interval in enumerate(self.hic.cut_intervals):
             label, start, end, coverage = interval
             length = end - start
@@ -129,6 +130,17 @@ class Scaffolds(object):
             self.pg_base.add_node(idx, **attr)
             if prev_label is not None and prev_label != label:
                 self.pg_base.add_path(contig_path, name=prev_label)
+                # prepare scaffold information
+                scaff_start = self.hic.cut_intervals[contig_path[0][1]]
+                scaff_end = self.hic.cut_intervals[contig_path[-1][2]]
+                length = scaff_end - scaff_start
+                attr = {'name': prev_label,
+                        'path': contig_path[:],
+                        'length': length,
+                        'start': scaff_start,
+                        'end': scaff_end,
+                        'direction': None}
+                self.scaffold.add_node(scaff_id, **attr)
                 contig_path = []
             contig_path.append(idx)
             prev_label = label
@@ -407,7 +419,7 @@ class Scaffolds(object):
         >>> S.pg_base.path
         {'c-2': [2], 'c-1': [1], 'c-0': [0]}
         >>> S.pg_base.node
-        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0_0'}, 1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1_0'}, 2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2_0'}}
+        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0'}, 1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1'}, 2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2'}}
         """
 
         paths_flatten = []
@@ -445,8 +457,14 @@ class Scaffolds(object):
                     length = sum([self.pg_base.node[x]['length'] for x in sub_path])
 
                 # prepare new PathGraph nodes
+                if num_splits == 1:
+                    # by default the type of path_name is numpy.string which is not compatible with networkx when
+                    # saving graphml
+                    name = str(path_name)
+                else:
+                    name = "{}_{}".format(path_name, index)
                 attr = {'length': length,
-                        'name': "{}_{}".format(path_name, index),
+                        'name': name,
                         'initial_path': sub_path}
                 pg_merge.add_node(i, attr_dict=attr)
 
@@ -1042,7 +1060,7 @@ class Scaffolds(object):
 
     @staticmethod
     @logit
-    def find_best_permutation(ma, paths, return_all_sorted_best_paths=False):
+    def find_best_permutation(ma, paths, return_all_sorted_best_paths=False, list_of_permutations=None):
         """
         Computes de bandwidth(bw) for all permutations of rows (and, because
         the matrix is symmetric of cols as well).
@@ -1081,10 +1099,17 @@ class Scaffolds(object):
         mapping = dict([(val, idx) for idx, val in enumerate(indices)])
         bw_value = []
         perm_list = []
-#        for perm in itertools.permutations(enc_indices):
-        for perm in itertools.permutations(paths):
-            #log.debug("testing permutation {}".format(perm))
-            for expnd in Scaffolds.permute_paths(perm):
+        if list_of_permutations is None:
+            for perm in itertools.permutations(paths):
+                for expnd in Scaffolds.permute_paths(perm):
+                    if expnd[::-1] in perm_list:
+                        continue
+                    expand_indices = sum(expnd, [])
+                    mapped_perm = [mapping[x] for x in expand_indices]
+                    bw_value.append(Scaffolds.bw(ma[mapped_perm, :][:, mapped_perm]))
+                    perm_list.append(expnd)
+        else:
+            for expnd in list_of_permutations:
                 if expnd[::-1] in perm_list:
                     continue
                 expand_indices = sum(expnd, [])
@@ -1414,8 +1439,8 @@ class Scaffolds(object):
                 break
 
         # based on the resulting maximum spanning tree, add the new edges to
-        # the paths graph.
-        for u, v, data in G.edges(data=True):
+        # the paths graph from strongest to weakest
+        for u, v, data in sorted(G.edges(data=True), key=lambda x: x[2]['weight'], reverse=True):
             if u in self.pg_base[v]:
                 # skip same path nodes
                 continue
@@ -1546,11 +1571,13 @@ class Scaffolds(object):
                     log.debug("*WARN* Skipping add edge between {} and {} corresponding "
                               "to {} and {}".format(u, v, self.pg_base.get_path_name_of_node(u),
                                                     self.pg_base.get_path_name_of_node(v)))
+                    return
+                if path_added:
+                    break
             if path_added is False:
-                raise ScaffoldException ("Can't add edge between {} and {} "
-                                            "corresponding to {} and {}".format(u, v,
-                                                                                self.pg_base.get_path_name_of_node(u),
-                                                                                self.pg_base.get_path_name_of_node(v)))
+                raise ScaffoldException ("Can't add edge between {} and {} corresponding to ({}) and ({})"
+                                         "".format(u, v, self.pg_base.get_path_name_of_node(u),
+                                                   self.pg_base.get_path_name_of_node(v)))
         else:
             self.pg_base.add_edge(u, v, weight=weight)
 

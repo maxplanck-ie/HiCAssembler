@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix, triu
 import logging
@@ -106,7 +107,21 @@ class Scaffolds(object):
         ...                    'c-4': [3, 4]}
         True
 
+        >>> S.scaffold.node['c-4']['path'] = [3, 4]
         """
+
+        def add_scaffold_node(name, path):
+            # prepare scaffold information
+            scaff_start = self.hic.cut_intervals[contig_path[0]][1]
+            scaff_end = self.hic.cut_intervals[contig_path[-1]][2]
+            length = scaff_end - scaff_start
+            attr = {'name': prev_label,
+                    'path': contig_path[:],
+                    'length': length,
+                    'start': scaff_start,
+                    'end': scaff_end,
+                    'direction': None}
+            self.scaffold.add_node(prev_label, **attr)
 
         contig_path = []
         prev_label = None
@@ -115,7 +130,7 @@ class Scaffolds(object):
         self.pg_base = PathGraph()
         self.pg_initial = None
         self.scaffold = PathGraph()
-        scaff_id = 0
+        self.bin_id_to_scaff = OrderedDict()
         for idx, interval in enumerate(self.hic.cut_intervals):
             label, start, end, coverage = interval
             length = end - start
@@ -128,22 +143,15 @@ class Scaffolds(object):
             length_array.append(length)
 
             self.pg_base.add_node(idx, **attr)
+            self.bin_id_to_scaff[idx] = label
             if prev_label is not None and prev_label != label:
                 self.pg_base.add_path(contig_path, name=prev_label)
-                # prepare scaffold information
-                scaff_start = self.hic.cut_intervals[contig_path[0][1]]
-                scaff_end = self.hic.cut_intervals[contig_path[-1][2]]
-                length = scaff_end - scaff_start
-                attr = {'name': prev_label,
-                        'path': contig_path[:],
-                        'length': length,
-                        'start': scaff_start,
-                        'end': scaff_end,
-                        'direction': None}
-                self.scaffold.add_node(scaff_id, **attr)
+                add_scaffold_node(prev_label, contig_path)
                 contig_path = []
             contig_path.append(idx)
             prev_label = label
+        if prev_label is not None:
+            add_scaffold_node(prev_label, contig_path)
 
         if len(contig_path) > 1:
             self.pg_base.add_path(contig_path, name=label)

@@ -107,7 +107,8 @@ class Scaffolds(object):
         ...                    'c-4': [3, 4]}
         True
 
-        >>> S.scaffold.node['c-4']['path'] = [3, 4]
+        >>> S.scaffold.node['c-4']['path'] == [3, 4]
+        True
         """
 
         def add_scaffold_node(name, path):
@@ -1553,13 +1554,50 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
 
         >>> S = Scaffolds(hic)
+
+        ## add edge between bins 3 and 5
+        >>> S.add_edge(3, 5)
+        >>> S.scaffold.path
+        {'c-0, c-1': ['c-0', 'c-1']}
+        >>> S.pg_base.path
+        {'c-0, c-1': [0, 1, 2, 3, 5, 4]}
+
+
+        >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
 
         # after split and merge, we have pg_initial and pg_base (pg_base being the merge of contig)
         >>> S.add_edge(0, 1)
         >>> S.pg_initial.path
         {'c-0, c-1': [0, 1, 2, 3, 5, 4]}
+
+        >>> S.scaffold.path
+        {'c-0, c-1': ['c-0', 'c-1']}
+
+        # check that the direction attribute has been set to the nodes
+        >>> S.scaffold.node['c-0']
+        {'direction': '+', 'end': 40, 'name': 'c-0', 'start': 0, 'length': 40, 'path': [0, 1, 2, 3]}
+
+        >>> S.scaffold.node['c-1']
+        {'direction': '-', 'end': 60, 'name': 'c-1', 'start': 40, 'length': 20, 'path': [4, 5]}
         """
+
+        def add_scaffold_edge(_bin_u, _bin_v, _weight):
+            scaffold_u = self.bin_id_to_scaff[_bin_u]
+            scaffold_v = self.bin_id_to_scaff[_bin_v]
+            self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)
+            if _bin_u == self.scaffold.node[scaffold_u]['path'][-1]:
+                self.scaffold.node[scaffold_u]['direction'] = "+"
+            elif _bin_u == self.scaffold.node[scaffold_u]['path'][0]:
+                self.scaffold.node[scaffold_u]['direction'] = "-"
+            else:
+                raise "error"
+            if _bin_v == self.scaffold.node[scaffold_v]['path'][0]:
+                self.scaffold.node[scaffold_v]['direction'] = "+"
+            elif _bin_v == self.scaffold.node[scaffold_v]['path'][-1]:
+                self.scaffold.node[scaffold_v]['direction'] = "-"
+            else:
+                raise "error"
 
         if self.pg_initial is not None:
             # get the initial nodes that should be merged
@@ -1572,8 +1610,11 @@ class Scaffolds(object):
             for iter_ in range(len(best_paths)):
                 best_path = best_paths[iter_][0]
                 try:
-                    self.pg_initial.add_edge(best_path[0][-1], best_path[1][0], weight=weight)
+                    bin_u = best_path[0][-1]
+                    bin_v = best_path[1][0]
+                    self.pg_initial.add_edge(bin_u, bin_v, weight=weight)
                     self.pg_base.add_edge(u, v, weight=weight)
+                    add_scaffold_edge(bin_u, bin_v, weight)
                     path_added = True
                 except PathGraphEdgeNotPossible:
                     log.debug("*WARN* Skipping add edge between {} and {} corresponding "
@@ -1588,6 +1629,7 @@ class Scaffolds(object):
                                                    self.pg_base.get_path_name_of_node(v)))
         else:
             self.pg_base.add_edge(u, v, weight=weight)
+            add_scaffold_edge(u, v, weight)
 
     def delete_edge(self, u, v):
         if self.pg_initial is not None:

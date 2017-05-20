@@ -1,5 +1,6 @@
 import re
 
+
 class PathGraph(object):
     """
     This class implements a path graph object.
@@ -32,11 +33,14 @@ class PathGraph(object):
         Examples
         --------
         >>> S = PathGraph()
-        >>> S.add_path([0,1,2,3])
+        >>> S.add_path([0, 1, 2, 3])
+        >>> S.add_path([4, 5, 6])
+        >>> [x for x in S]
+        [0, 1, 2, 3, 4, 5, 6]
         """
         return iter(self.node)
 
-    def __contains__(self,n):
+    def __contains__(self, n):
         """Return True if n is a node, False otherwise. Use the expression
         'n in S'.
 
@@ -71,7 +75,8 @@ class PathGraph(object):
         return len(self.node)
 
     def __getitem__(self, n):
-        """Return a list of that contains node n.  Use the expression 'S[n]'.
+        """Returns the path contains node n. Use the expression 'S[n]'.
+        If n does not belong to a path, return [n]
 
         Parameters
         ----------

@@ -127,10 +127,8 @@ class HiCAssembler:
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
         self.scaffolds_graph.remove_small_paths(MIN_LENGTH)
-        assert mat_size != self.scaffolds_graph.hic.matrix.shape
-        log.debug("Size of matrix is {}".format(self.hic.matrix.shape[0]))
+        assert mat_size == self.scaffolds_graph.hic.matrix.shape
 
-        # compute initial N50
         self.N50 = []
 
     def assemble_contigs(self):
@@ -169,7 +167,7 @@ class HiCAssembler:
                 self.scaffolds_graph.remove_small_paths(MIN_LENGTH*1.5)
 
             if iteration ==3:
-
+                return
                 self.put_back_small_scaffolds()
 
         print self.N50
@@ -466,21 +464,22 @@ class HiCAssembler:
         from collections import OrderedDict
         scaff_boundaries = OrderedDict()
         start_bin = 0
-        try:
-            for name, path in self.scaffolds_graph.matrix_bins.path.iteritems():
-                order_list.extend(path)
-                scaff_boundaries[name] = (start_bin, start_bin + len(path))
-                start_bin += len(path)
-        except:
-            # this case only happens when no scaffolds had been added
-            # yet and pg_initial does not exist. I.e. only happens for
-            # the before_assembly matrix
-            for name, path in self.scaffolds_graph.pg_base.path.iteritems():
-                order_list.extend(path)
-                scaff_boundaries[name] = (start_bin, start_bin + len(path))
-                start_bin += len(path)
-        #import pdb;pdb.set_trace()
-        assert len(order_list) == hic.matrix.shape[0]
+        end_bin = 0
+        path_list_test = {}
+        for idx, scaff_path in enumerate(self.scaffolds_graph.scaffold.get_all_paths()):
+            path_list_test[idx] = []
+            for scaffold_name in scaff_path:
+                bin_path = self.scaffolds_graph.scaffold.node[scaffold_name]['path']
+                order_list.extend(bin_path)
+                path_list_test[idx].extend(bin_path)
+                end_bin += len(bin_path)
+
+            if path_list_test[idx] != self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]:
+                import pdb;pdb.set_trace()
+            #assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
+            scaff_boundaries["scaff_{}".format(idx)] = (start_bin, end_bin)
+            start_bin = end_bin
+
         hic.reorderBins(order_list)
         hic.chromosomeBinBoundaries = scaff_boundaries
         return hic

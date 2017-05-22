@@ -163,11 +163,10 @@ class HiCAssembler:
 
             self.plot_matrix(self.out_folder + "/after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
 
-            if iteration == 1:
-                self.scaffolds_graph.remove_small_paths(MIN_LENGTH*1.5)
+            # if iteration == 1:
+            #     self.scaffolds_graph.remove_small_paths(MIN_LENGTH*1.5)
 
             if iteration ==3:
-                return
                 self.put_back_small_scaffolds()
 
         print self.N50
@@ -180,7 +179,13 @@ class HiCAssembler:
         Returns
         -------
 
+
+        Examples
+        --------
+
+
         """
+
         orig_scaff = Scaffolds(self.hic)
         orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method='ice')
         nxG = orig_scaff.make_nx_graph()
@@ -214,8 +219,10 @@ class HiCAssembler:
         #       \--o  <- easy to put back
         #          X
         node_degree_mst = dict(nxG.degree(nxG.node.keys()))
-        for node_x, degree in sorted(node_degree_mst.iteritems(), key=lambda (k, v): v):
-            if degree == 1:
+
+        for scaffold_name in self.scaffolds_graph.removed_scaffolds.node.keys():
+            if node_degree_mst[name2id[scaffold_name]] == 1:
+                node_x = name2id[scaffold_name]
                 node_b = nxG.edge[node_x].keys()[0]
                 if nxG.degree(node_b) == 3:
                     # find the best permutation to accommodate the node
@@ -240,25 +247,45 @@ class HiCAssembler:
                     path_2 = [path_a, path_x[::-1], path_b, path_c]
                     path_3 = [path_a, path_b, path_x, path_c]
                     path_4 = [path_a, path_b, path_x[::-1], path_c]
-                    best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, path_1, list_of_permutations=[path_1, path_2, path_3, path_4])
+                    best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, path_1,
+                                                                list_of_permutations=[path_1, path_2, path_3, path_4])
+
+                    # add the scaffold back to the scaffold_graph
+                    self.scaffolds_graph.restore_scaffold(scaffold_name)
                     # modify the network
                     if best_path == path_1 or best_path == path_2:
                         nxG.remove_edge(node_b, node_c)
                         nxG.add_edge(node_b, node_x)
                         nxG.add_edge(node_x, node_c)
+                        u = path_a[-1]
+                        v = path_b[0]
                         if best_path == path_1:
+                            x_a = path_x[0]
+                            x_b = path_x[-1]
                             nxG.node[node_x]['direction'] = '+'
                         else:
+                            x_a = path_x[-1]
+                            x_b = path_x[0]
                             nxG.node[node_x]['direction'] = '-'
                     elif best_path == path_3 or best_path == path_4:
                         nxG.remove_edge(node_b, node_c)
                         nxG.add_edge(node_b, node_x)
                         nxG.add_edge(node_x, node_c)
+                        u = path_b[-1]
+                        v = path_c[0]
+
                         if best_path == path_3:
+                            x_a = path_x[0]
+                            x_b = path_x[-1]
                             nxG.node[node_x]['direction'] = '+'
                         else:
+                            x_a = path_x[-1]
+                            x_b = path_x[0]
                             nxG.node[node_x]['direction'] = '-'
 
+                    self.scaffolds_graph.delete_edge(u, v)
+                    self.scaffolds_graph.add_edge(u, x_a)
+                    self.scaffolds_graph.add_edge(x_b, v)
                     import ipdb;ipdb.set_trace()
 
         # identify removed scaffolds
@@ -1120,3 +1147,4 @@ class HiCAssembler:
 
 class HiCAssemblerException(Exception):
         """Base class for exceptions in HiCAssembler."""
+

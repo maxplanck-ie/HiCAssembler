@@ -138,7 +138,7 @@ class Scaffolds(object):
                     'length': length,
                     'start': scaff_start,
                     'end': scaff_end,
-                    'direction': None}
+                    'direction': "+"}
             self.scaffold.add_node(prev_label, **attr)
 
         contig_path = []
@@ -175,7 +175,6 @@ class Scaffolds(object):
 
         # before any merge is done, pg_base == pg_matrix.bins
         self.pg_base = copy.deepcopy(self.matrix_bins)
-
 
     def get_all_paths(self, pg_base=False):
         """Returns all paths in the graph.
@@ -1817,28 +1816,30 @@ class Scaffolds(object):
         {'direction': '-', 'end': 20, 'name': 'c-2', 'start': 0, 'length': 20, 'path': [5, 4]}
         """
 
-        def add_scaffold_edge(_bin_u, _bin_v, _weight):
-            if _bin_u in [366, 1883] and _bin_v in [366, 1883]:
-                import pdb;pdb.set_trace()
+        def add_scaffold_edge(_bin_u, _bin_v, _weight, direction):
             scaffold_u = self.bin_id_to_scaff[_bin_u]
             scaffold_v = self.bin_id_to_scaff[_bin_v]
+            if direction[0] == '-':
+                for scaff_name in self.scaffold[scaffold_u]:
+                    if self.scaffold.node[scaff_name]['direction'] == "+":
+                        self.scaffold.node[scaff_name]['direction'] = "-"
+                    elif self.scaffold.node[scaff_name]['direction'] == "-":
+                        self.scaffold.node[scaff_name]['direction'] = "-"
+                    else: # when direction has not been set:
+                        self.scaffold.node[scaff_name]['direction'] = "-"
+                    self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
+
+            if direction[1] == '-':
+                for scaff_name in self.scaffold[scaffold_v]:
+                    if self.scaffold.node[scaff_name]['direction'] == "+":
+                        self.scaffold.node[scaff_name]['direction'] = "-"
+                    elif self.scaffold.node[scaff_name]['direction'] == "-":
+                        self.scaffold.node[scaff_name]['direction'] = "-"
+                    else: # when direction has not been set:
+                        self.scaffold.node[scaff_name]['direction'] = "-"
+                    self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
+
             self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)
-
-            if _bin_u == self.scaffold.node[scaffold_u]['path'][0]:
-                self.scaffold.node[scaffold_u]['path'] = self.scaffold.node[scaffold_u]['path'][::-1]
-
-            if self.scaffold.node[scaffold_u]['path'][0] > self.scaffold.node[scaffold_u]['path'][-1]:
-                self.scaffold.node[scaffold_u]['direction'] = "-"
-            else:
-                self.scaffold.node[scaffold_u]['direction'] = "+"
-
-            if _bin_v == self.scaffold.node[scaffold_v]['path'][-1]:
-                self.scaffold.node[scaffold_v]['path'] = self.scaffold.node[scaffold_v]['path'][::-1]
-
-            if self.scaffold.node[scaffold_v]['path'][0] > self.scaffold.node[scaffold_v]['path'][-1]:
-                self.scaffold.node[scaffold_v]['direction'] = "-"
-            else:
-                self.scaffold.node[scaffold_v]['direction'] = "+"
 
         # get the initial nodes that should be merged
         try:
@@ -1856,9 +1857,9 @@ class Scaffolds(object):
             try:
                 bin_u = best_path[0][-1]
                 bin_v = best_path[1][0]
-                self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
+                direction = self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
                 self.pg_base.add_edge(u, v, weight=weight)
-                add_scaffold_edge(bin_u, bin_v, weight)
+                add_scaffold_edge(bin_u, bin_v, weight, direction)
                 path_added = True
             except PathGraphEdgeNotPossible:
                 log.debug("*WARN* Skipping add edge between {} and {} corresponding "

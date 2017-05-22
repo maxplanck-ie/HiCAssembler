@@ -274,22 +274,7 @@ class Scaffolds(object):
 
             if length <= min_length:
                 log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
-                scaffold_id = self.bin_id_to_scaff[path[0]]
-                if path[0] in self.matrix_bins.path_id:
-                    path_name = self.matrix_bins.path_id[path[0]]
-                    self.removed_bins.add_path(path, name=path_name)
-                    self.removed_scaffolds.add_path(self.scaffold[scaffold_id])
-
-                for bin_node in path:
-                    self.removed_bins.add_node(bin_node, **self.matrix_bins.node[bin_node])
-                for scaffold_name in self.scaffold[scaffold_id]:
-                    self.removed_scaffolds.add_node(scaffold_name, **self.scaffold.node[scaffold_name])
-
-                # remove matrix_bins path
-                self.matrix_bins.delete_path_containing_node(path[0], delete_nodes=True)
-                # remove scaffolds path
-                self.scaffold.delete_path_containing_node(scaffold_id, delete_nodes=True)
-
+                self._remove_bin_path(path)
                 to_remove.extend(path)
                 to_remove_paths.append(path)
                 removed_length_total += length
@@ -302,75 +287,55 @@ class Scaffolds(object):
                                                               fraction=100 * float(removed_length_total) / length_total,
                                                               min_length=min_length))
 
-    # def remove_small_paths(self, min_length):
-    #     """
-    #     Removes from HiC matrix all bins that are smaller than certain size.
-    #
-    #     Parameters
-    #     ----------
-    #     min_length : minimum path length in bp
-    #
-    #     Returns
-    #     -------
-    #     None
-    #
-    #     Examples
-    #     --------
-    #
-    #     >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
-    #     ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
-    #     >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-    #     >>> S = Scaffolds(hic)
-    #     >>> list(S.get_all_paths())
-    #     [[0, 1, 2], [3, 4], [5]]
-    #     >>> S.remove_small_paths(20)
-    #
-    #     The paths that are smaller or equal to 20 are the one corresponding to c-2 and c-3.
-    #     thus, only the path of 'c-0' is kept
-    #     >>> S.matrix_bins.path.values()
-    #     [[0, 1, 2]]
-    #
-    #     >>> list(S.removed_bins.get_all_paths())
-    #     [[3, 4], [5]]
-    #     >>> S.removed_bins.node[5]
-    #     {'start': 0, 'length': 10, 'end': 10, 'name': 'c-3', 'coverage': 1}
-    #     """
-    #
-    #     to_remove = []
-    #     to_remove_paths = []
-    #     self.removed_bins = PathGraph()
-    #     self.removed_scaffolds = PathGraph()
-    #     paths_total = 0
-    #     length_total = 0
-    #     removed_length_total = 0
-    #     paths_list = list(self.matrix_bins.get_all_paths())
-    #     for path in paths_list:
-    #         paths_total += 1
-    #         length = (sum([self.matrix_bins.node[x]['length'] for x in path]))
-    #         length_total += length
-    #
-    #         if length <= min_length:
-    #             log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
-    #             if path[0] in self.matrix_bins.path_id:
-    #                 path_name = self.matrix_bins.path_id[path[0]]
-    #                 self.removed_bins.add_path(path, name=path_name)
-    #                 import pdb;pdb.set_trace()
-    #                 # self.removed_scaffolds
-    #             for bin_node in path:
-    #                 self.removed_bins.add_node(bin_node, **self.matrix_bins.node[bin_node])
-    #
-    #             self.matrix_bins.delete_path_containing_node(path[0], delete_nodes=True)
-    #             to_remove.extend(path)
-    #             to_remove_paths.append(path)
-    #             removed_length_total += length
-    #
-    #     if len(to_remove) and len(to_remove) < self.matrix.shape[0]:
-    #         log.debug("Removing {num_scaffolds} scaffolds/contigs, containing {num_bins} bins "
-    #                   "({fraction:.3f}% of total assembly length), because they "
-    #                   "are shorter than {min_length} ".format(num_scaffolds=len(to_remove_paths),
-    #                                                           num_bins=len(to_remove),
-    #                                                           fraction=100 * float(removed_length_total) / length_total,
-    #                                                           min_length=min_length))
+    def _remove_bin_path(self, path):
+        scaffold_id = self.bin_id_to_scaff[path[0]]
+        if path[0] in self.matrix_bins.path_id:
+            path_name = self.matrix_bins.path_id[path[0]]
+            self.removed_bins.add_path(path, name=path_name)
+            self.removed_scaffolds.add_path(self.scaffold[scaffold_id])
+
+        for bin_node in path:
+            self.removed_bins.add_node(bin_node, **self.matrix_bins.node[bin_node])
+        for scaffold_name in self.scaffold[scaffold_id]:
+            self.removed_scaffolds.add_node(scaffold_name, **self.scaffold.node[scaffold_name])
+
+        # remove matrix_bins path
+        self.matrix_bins.delete_path_containing_node(path[0], delete_nodes=True)
+        # remove scaffolds path
+        self.scaffold.delete_path_containing_node(scaffold_id, delete_nodes=True)
+
+    def restore_scaffold(self, scaffold_name):
+        """
+
+        Examples
+        --------
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.remove_small_paths(20)
+        >>> list(S.removed_scaffolds.get_all_paths())
+        [['c-3'], ['c-2']]
+        >>> S.restore_scaffold('c-2')
+        >>> list(S.removed_scaffolds.get_all_paths())
+        [['c-3']]
+        >>> list(S.scaffold.get_all_paths())
+        [['c-2'], ['c-0']]
+        >>> list(S.matrix_bins.get_all_paths())
+        [[0, 1, 2], [3, 4]]
+
+        >>> list(S.removed_bins.get_all_paths())
+        [[5]]
+        """
+        self.scaffold.add_node(scaffold_name, **self.removed_scaffolds.node[scaffold_name])
+        scaff_path = self.removed_scaffolds[scaffold_name]
+        for scaff_name in scaff_path:
+            path = self.removed_scaffolds.node[scaff_name]['path']
+            self.matrix_bins.add_path(path, name=scaffold_name)
+            for bin_node in path:
+                self.matrix_bins.add_node(bin_node, **self.removed_bins.node[bin_node])
+        self.removed_bins.delete_path_containing_node(path[0], delete_nodes=True)
+        self.removed_scaffolds.delete_path_containing_node(scaffold_name, delete_nodes=True)
 
     def remove_small_paths_bk(self, min_length):
         """

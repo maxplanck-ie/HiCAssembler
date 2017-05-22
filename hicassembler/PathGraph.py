@@ -654,6 +654,28 @@ class PathGraph(object):
 
         self.add_path(merged_path)
 
+    def get_all_paths(self):
+        """Returns all paths in the graph.
+        This is similar to get connected components in networkx
+        but in this case, the order of the returned  paths
+        represents scaffolds of contigs
+
+        >>> cut_intervals = [('c-0', 0, 1, 1), ('c-0', 1, 2, 1), ('c-0', 2, 3, 1),
+        ... ('c-2', 0, 1, 1), ('c-2', 1, 2, 1), ('c-3', 0, 1, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> [x for x in S.get_all_paths()]
+        [[0, 1, 2], [3, 4], [5]]
+        """
+        seen = set()
+        for v in self:
+            # v in self returns all nodes in the pathgraph
+            if v not in seen:
+                # self [v] returns a path containing v. If the v does not belong to a path
+                # a singleton path [v] is returned
+                yield self[v]
+            seen.update(self[v])
+
     @staticmethod
     def new_split_path_names(path_id):
         if isinstance(path_id, int):

@@ -361,7 +361,7 @@ class PathGraph(object):
 
         Returns
         -------
-        None
+        direction_u, direction_v as for example ("+", "-")
 
         Examples
         --------
@@ -433,13 +433,17 @@ class PathGraph(object):
 
         # if u is the start of a path
         # invert the direction of the path
+        direction_u = "+"
         if len(path[u]) and path[u][0] == u:
             path[u] = path[u][::-1]
+            direction_u = "-"
 
         # if v is at the end of the path
         # invert the direction of the path
+        direction_v = "+"
         if len(path[v]) and path[v][-1] == v:
             path[v] = path[v][::-1]
+            direction_v = "-"
 
         if name is None:
             # get as name for the new path, a combination
@@ -460,6 +464,7 @@ class PathGraph(object):
         datadict.update(attr_dict)
         self.adj[u][v] = datadict
         self.adj[v][u] = datadict
+        return direction_u, direction_v
 
     def delete_node_from_path(self, n):
         """

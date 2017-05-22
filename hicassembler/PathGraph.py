@@ -162,7 +162,7 @@ class PathGraph(object):
 
         # set up attribute dict
         if attr_dict is None:
-            attr_dict=attr
+            attr_dict = attr
         else:
             try:
                 attr_dict.update(attr)
@@ -185,6 +185,52 @@ class PathGraph(object):
                 raise PathGraphException("Path id: {} does not exists".format(path_id))
 
             self.path_id[n] = path_id
+
+    def delete_node(self, n):
+        """
+        Remove node n.
+        Removes the node n and all adjacent edges. If the node belongs to a path
+        the path will be split at the node position
+        Attempting to remove a non-existent node will raise an exception.
+
+        Parameters
+        ----------
+        n : node
+           A node in the graph
+
+        Raises
+        -------
+        PathGraphError
+           If n is not in the graph.
+
+        Examples
+        --------
+
+        >>> S = PathGraph()
+        >>> S.add_node('C1')
+        >>> S['C1']
+        ['C1']
+
+        >>> S.delete_node('C1')
+        >>> S['C1']
+        Traceback (most recent call last):
+        ...
+        PathGraphNodeUnknown: Node C1 does not exists
+
+        Check that the node is deleted from a path
+        and that the path is split
+        >>> S.add_path([0,1,2,3], name='path_1')
+        >>> S.delete_node(2)
+        >>> S.path
+        {'path_1/1': [0, 1], 'path_1/2': [3]}
+        """
+
+        if n not in self.node:
+            raise PathGraphException("The node {} is not in the graph.".format(n))
+
+        self.delete_node_from_path(n)
+        self.delete_path_containing_node(n)
+        del self.node[n]
 
     def add_path(self, nodes, name=None, attr_dict=None, **attr):
         """Add a path consisting of the ordered nodes
@@ -415,6 +461,78 @@ class PathGraph(object):
         self.adj[u][v] = datadict
         self.adj[v][u] = datadict
 
+    def delete_node_from_path(self, n):
+        """
+        removes the given node from a path. The path is split into two unless
+        the node was the first or last.
+
+        Parameters
+        ----------
+        n : node name
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+
+        >>> S = PathGraph()
+        >>> S.add_node("C1")
+
+        C1 does not belong to a path so nothing should happen
+        >>> S.delete_node_from_path('C1')
+
+
+        >>> S.add_path([0,1,2,3])
+        >>> S.delete_node_from_path(2)
+        >>> S.path
+        {0: [0, 1], 1: [3]}
+
+        Test named paths
+        >>> S = PathGraph()
+        >>> S.add_path([0,1,2,3,4], name='path_1')
+        >>> S.delete_node_from_path(2)
+        >>> S.path
+        {'path_1/1': [0, 1], 'path_1/2': [3, 4]}
+
+        Test first and last node in path
+        >>> S.delete_node_from_path(0)
+        >>> S.path
+        {'path_1/1': [1], 'path_1/2': [3, 4]}
+
+        >>> S.delete_node_from_path(4)
+        >>> S.path
+        {'path_1/1': [1], 'path_1/2': [3]}
+        """
+        if n not in self.node:
+            raise PathGraphException("The node {} is not in the graph.".format(n))
+
+        if n not in self.path_id:
+            return
+        path_id = self.path_id[n]
+
+        if len(self.path[path_id]) == 1:
+            assert self.adj[n] == {}
+            del self.path[n]
+            return
+
+        idx_n = self.path[path_id].index(n)
+        new_path_left = self.path[path_id][:idx_n]
+        new_path_right = self.path[path_id][idx_n+1:]
+
+        # delete original path
+        self.delete_path_containing_node(n)
+        if not new_path_left:
+            self.add_path(new_path_right, name=path_id)
+        elif not new_path_right:
+            self.add_path(new_path_left, name=path_id)
+        else:
+            new_name_left, new_name_right = PathGraph.new_split_path_names(path_id)
+            self.add_path(new_path_left, name=new_name_left)
+            self.add_path(new_path_right, name=new_name_right)
+        del self.adj[n]
+
     def delete_edge(self, u, v):
         """
 
@@ -464,24 +582,11 @@ class PathGraph(object):
         self.delete_path_containing_node(u)
 
         # add the new two paths
-        if isinstance(path_id, int):
-            new_name_u = None
-            new_name_v = None
-        else:
-            # check if the path was divided before
-            res = re.search("(.*?)/(\d+)$", str(path_id))
-            if res is not None:
-                path_id = res.group(1)
-                split_number = int(res.group(2))
-            else:
-                split_number = 1
-                path_id = str(path_id)
-            new_name_u = str(path_id) + "/{}".format(split_number)
-            new_name_v = str(path_id) + "/{}".format(split_number + 1)
+        new_name_u, new_name_v = PathGraph.new_split_path_names(path_id)
         self.add_path(new_path_u, name=new_name_u)
         self.add_path(new_path_v, name=new_name_v)
 
-    def delete_path_containing_node(self, n, keep_adj=False):
+    def delete_path_containing_node(self, n, keep_adj=False, delete_nodes=False):
         """
 
         Parameters
@@ -509,6 +614,13 @@ class PathGraph(object):
 
         >>> S.adj[1]
         {}
+
+        Test delete_nodes=True
+        >>> S = PathGraph()
+        >>> S.add_path([0,1,2,3])
+        >>> S.delete_path_containing_node(2, delete_nodes=True)
+        >>> S.node
+        {}
         """
         if n in self.path_id:
             path_id = self.path_id[n]
@@ -516,6 +628,9 @@ class PathGraph(object):
                 del self.path_id[_n]
                 if not keep_adj:
                     self.adj[_n] = {}
+                if delete_nodes:
+                    del self.node[_n]
+                    del self.adj[_n]
             del self.path[path_id]
 
     def merge_paths(self, paths):
@@ -538,6 +653,28 @@ class PathGraph(object):
             self.delete_path_containing_node(path[0])
 
         self.add_path(merged_path)
+
+    @staticmethod
+    def new_split_path_names(path_id):
+        if isinstance(path_id, int):
+            new_name_u = None
+            new_name_v = None
+        else:
+            # for paths with names, assign a new name adding
+            # `/n`
+            # by adding
+            # check if the path was divided before
+            res = re.search("(.*?)/(\d+)$", str(path_id))
+            if res is not None:
+                path_id = res.group(1)
+                split_number = int(res.group(2))
+            else:
+                split_number = 1
+                path_id = str(path_id)
+            new_name_u = str(path_id) + "/{}".format(split_number)
+            new_name_v = str(path_id) + "/{}".format(split_number + 1)
+
+        return new_name_u, new_name_v
 
 
 class PathGraphException(Exception):

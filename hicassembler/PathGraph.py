@@ -621,7 +621,18 @@ class PathGraph(object):
         >>> S.delete_path_containing_node(2, delete_nodes=True)
         >>> S.node
         {}
+
+        >>> S = PathGraph()
+        >>> S.add_node("test")
+        >>> S.delete_path_containing_node("test", delete_nodes=True)
+        >>> S.node
+        {}
         """
+
+        if n not in self.path_id and delete_nodes:
+            del self.node[n]
+            del self.adj[n]
+
         if n in self.path_id:
             path_id = self.path_id[n]
             for _n in self.path[self.path_id[n]]:
@@ -660,11 +671,11 @@ class PathGraph(object):
         but in this case, the order of the returned  paths
         represents scaffolds of contigs
 
-        >>> cut_intervals = [('c-0', 0, 1, 1), ('c-0', 1, 2, 1), ('c-0', 2, 3, 1),
-        ... ('c-2', 0, 1, 1), ('c-2', 1, 2, 1), ('c-3', 0, 1, 1)]
-        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-        >>> S = Scaffolds(hic)
-        >>> [x for x in S.get_all_paths()]
+        >>> S = PathGraph()
+        >>> S.add_path([0, 1, 2])
+        >>> S.add_path([3, 4])
+        >>> S.add_node(5)
+        >>> list(S.get_all_paths())
         [[0, 1, 2], [3, 4], [5]]
         """
         seen = set()

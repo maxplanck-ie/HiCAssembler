@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import copy
 import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix, triu
 import logging
@@ -70,8 +71,8 @@ class Scaffolds(object):
         # initialize the list of contigs as a graph with no edges
         self.hic = hic_matrix
         self.matrix = None  # will contain the reduced matrix
-        self.pg_base = PathGraph()
-        self.pg_initial = None
+        self.pg_base = None
+        self.matrix_bins = PathGraph()
 
         # initialize the contigs directed graph
         self._init_path_graph()
@@ -128,8 +129,7 @@ class Scaffolds(object):
         prev_label = None
         length_array = []
         self.matrix = self.hic.matrix.copy()
-        self.pg_base = PathGraph()
-        self.pg_initial = None
+        self.matrix_bins = PathGraph()
         self.scaffold = PathGraph()
         self.bin_id_to_scaff = OrderedDict()
         for idx, interval in enumerate(self.hic.cut_intervals):
@@ -143,10 +143,10 @@ class Scaffolds(object):
                     'length': length}
             length_array.append(length)
 
-            self.pg_base.add_node(idx, **attr)
+            self.matrix_bins.add_node(idx, **attr)
             self.bin_id_to_scaff[idx] = label
             if prev_label is not None and prev_label != label:
-                self.pg_base.add_path(contig_path, name=prev_label)
+                self.matrix_bins.add_path(contig_path, name=prev_label)
                 add_scaffold_node(prev_label, contig_path)
                 contig_path = []
             contig_path.append(idx)
@@ -155,9 +155,13 @@ class Scaffolds(object):
             add_scaffold_node(prev_label, contig_path)
 
         if len(contig_path) > 1:
-            self.pg_base.add_path(contig_path, name=label)
+            self.matrix_bins.add_path(contig_path, name=label)
 
-    def get_all_paths(self, initial=False):
+        # before any merge is done, pg_base == pg_matrix.bins
+        self.pg_base = copy.deepcopy(self.matrix_bins)
+
+
+    def get_all_paths(self, pg_base=False):
         """Returns all paths in the graph.
         This is similar to get connected components in networkx
         but in this case, the order of the returned  paths
@@ -171,16 +175,79 @@ class Scaffolds(object):
         [[0, 1, 2], [3, 4], [5]]
         """
         seen = set()
-        if initial and self.pg_initial is not None:
-            pathgraph = self.pg_initial
-        else:
+        if pg_base and self.pg_base is not None:
             pathgraph = self.pg_base
+        else:
+            pathgraph = self.matrix_bins
         for v in pathgraph:
+            # v in pathgraph returns all nodes in the pathgraph
             if v not in seen:
+                # parhgraph[v] returns a path containing v
                 yield pathgraph[v]
             seen.update(pathgraph[v])
 
     def remove_small_paths(self, min_length):
+        """
+        Removes from HiC matrix all bins that are smaller than certain size.
+
+        Parameters
+        ----------
+        min_length : minimum path length in bp
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2], [3, 4], [5]]
+        >>> S.remove_small_paths(20)
+
+        The paths that are smaller or equal to 20 are the one corresponding to c-2 and c-3.
+        thus, only the path of 'c-0' is kept
+        >>> S.matrix_bins.path.values()
+        [[0, 1, 2]]
+
+        >>> S.removed_bins.path.values()
+        [[3, 4], [5]]
+        """
+
+        to_remove = []
+        to_remove_paths = []
+        self.removed_bins = PathGraph()
+        paths_total = 0
+        length_total = 0
+        removed_length_total = 0
+        for path in self.matrix_bins.path.values():
+            paths_total += 1
+            length = (sum([self.matrix_bins.node[x]['length'] for x in path]))
+            length_total += length
+
+            if length <= min_length:
+                log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
+                for bin_node in path:
+                    self.removed_bins.node[bin_node] = self.matrix_bin.node[bin_node]
+                self.matrix_bins.delete_path_containing_node(path[0], delete_nodes=True)
+                self.removed_bins.add_path(path)
+                to_remove.extend(path)
+                to_remove_paths.append(path)
+                removed_length_total += length
+
+        if len(to_remove) and len(to_remove) < self.matrix.shape[0]:
+            log.debug("Removing {num_scaffolds} scaffolds/contigs, containing {num_bins} bins "
+                      "({fraction:.3f}% of total assembly length), because they "
+                      "are shorter than {min_length} ".format(num_scaffolds=len(to_remove_paths),
+                                                              num_bins=len(to_remove),
+                                                              fraction=100 * float(removed_length_total) / length_total,
+                                                              min_length=min_length))
+
+    def remove_small_paths_bk(self, min_length):
         """
         Removes from HiC matrix all bins that are smaller than certain size.
 
@@ -206,7 +273,7 @@ class Scaffolds(object):
         >>> S = Scaffolds(hic)
         >>> [x for x in S.get_all_paths()]
         [[0, 1, 2], [3, 4], [5]]
-        >>> S.remove_small_paths(20)
+        >>> S.remove_small_paths_bk(20)
 
         The paths that are smaller or equal to 20 are the one corresponding to c-2 and c-3.
         thus, only the path of 'c-0' is kept
@@ -225,13 +292,14 @@ class Scaffolds(object):
         paths_total = 0
         length_total = 0
         removed_length_total = 0
+
         for path in self.get_all_paths():
             paths_total += 1
-            length = (sum([self.pg_base.node[x]['length'] for x in path]))
+            length = (sum([self.matrix_bins.node[x]['length'] for x in path]))
             length_total += length
 
             if length <= min_length:
-                log.debug("Removing path {}, length {}".format(self.pg_base.get_path_name_of_node(x), length))
+                log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
                 to_remove.extend(path)
                 to_remove_paths.append(path)
                 removed_length_total += length
@@ -249,7 +317,7 @@ class Scaffolds(object):
 
     def get_paths_length(self):
         for path in self.get_all_paths():
-            yield (sum([self.pg_base.node[x]['length'] for x in path]))
+            yield (sum([self.matrix_bins.node[x]['length'] for x in path]))
 
     def get_paths_stats(self):
         import matplotlib.pyplot as plt
@@ -352,7 +420,7 @@ class Scaffolds(object):
                 [2, 2, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2]])
 
-        >>> S.pg_base.path == {'c-0': [0, 1, 2, 3, 4, 5]}
+        >>> S.matrix_bins.path == {'c-0': [0, 1, 2, 3, 4, 5]}
         True
         >>> S.split_and_merge_contigs(num_splits=3, normalize_method='none')
         >>> S.matrix.todense()
@@ -402,9 +470,15 @@ class Scaffolds(object):
                 [2, 2, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2]])
-        >>> S.pg_base.path # == {'c-0': [0, 1, 2, 3, 4, 5]}
+        >>> S.matrix_bins.path # == {'c-0': [0, 1, 2, 3, 4, 5]}
         {'c-2': [4, 5], 'c-1': [2, 3], 'c-0': [0, 1]}
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
+
+        >>> S.pg_base.node
+        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0'}, \
+1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1'}, \
+2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2'}}
+
         >>> S.matrix.todense()
         matrix([[12,  8,  8],
                 [ 8,  6,  8],
@@ -427,14 +501,13 @@ class Scaffolds(object):
         Now there are not paths.
         >>> S.pg_base.path
         {'c-2': [2], 'c-1': [1], 'c-0': [0]}
-        >>> S.pg_base.node
-        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0'}, 1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1'}, 2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2'}}
         """
 
         paths_flatten = []
         i = 0
-        pg_merge = PathGraph()
-        for path in self.get_all_paths(initial=True):
+        self.pg_base = PathGraph()
+        for path in self.get_all_paths():
+#        for path in self.matrix_bins.path.values():
             # split_path has the form [[0, 1 ,2], [3, 4], [5, 6, 7]]
             split_path = Scaffolds.split_path(path, num_splits)
             # each sub path in the split_path list will become an index
@@ -455,15 +528,9 @@ class Scaffolds(object):
             # keep the original high resolution paths that form a contig. After this
             # merge, it is important to keep track of the original or base paths.
             merged_path = []
-            if self.pg_initial is not None:
-                path_name = self.pg_initial.get_path_name_of_node(path[0])
-            else:
-                path_name = self.pg_base.get_path_name_of_node(path[0])
+            path_name = self.matrix_bins.get_path_name_of_node(path[0])
             for index, sub_path in enumerate(split_path):
-                if self.pg_initial is not None:
-                    length = sum([self.pg_initial.node[x]['length'] for x in sub_path])
-                else:
-                    length = sum([self.pg_base.node[x]['length'] for x in sub_path])
+                length = sum([self.matrix_bins.node[x]['length'] for x in sub_path])
 
                 # prepare new PathGraph nodes
                 if num_splits == 1:
@@ -475,12 +542,12 @@ class Scaffolds(object):
                 attr = {'length': length,
                         'name': name,
                         'initial_path': sub_path}
-                pg_merge.add_node(i, attr_dict=attr)
+                self.pg_base.add_node(i, attr_dict=attr)
 
                 merged_path.append(i)
                 i += 1
 
-            pg_merge.add_path(merged_path, name=path_name)
+            self.pg_base.add_path(merged_path, name=path_name)
             paths_flatten.extend(split_path)
 
         if len(paths_flatten) == 0:
@@ -499,10 +566,6 @@ class Scaffolds(object):
             self.matrix = Scaffolds.normalize_by_ice(reduced_matrix, reduce_paths)
         else:
             self.matrix = reduced_matrix
-
-        if self.pg_initial is None:
-            self.pg_initial = self.pg_base
-        self.pg_base = pg_merge
 
         assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
 
@@ -525,140 +588,138 @@ class Scaffolds(object):
     def normalize_by_ice(matrix, paths):
         return iterativeCorrection(matrix, M=1000, verbose=False)[0]
 
-    @logit
-    def merge_to_size(self, target_length=20000, reset_base_paths=True, normalize_method='ice'):
-        """
-        finds groups of bins/node that have a sum length of about the `target_length` size.
-        The algorithm proceeds from the flanks of a path to the inside. If a bin/node
-        is too small it is skipped.
+#     @logit
+#     def merge_to_size(self, target_length=20000, reset_base_paths=True, normalize_method='ice'):
+#         """
+#         finds groups of bins/node that have a sum length of about the `target_length` size.
+#         The algorithm proceeds from the flanks of a path to the inside. If a bin/node
+#         is too small it is skipped.
+#
+#
+#         Parameters
+#         ----------
+#         target_length : in bp
+#         reset_base_paths: boolean   Reset means that the merge information is kept
+#                                     as the primary data, otherwise the original paths
+#                                     and node data is kept and the merge refers to this data. Why is this done?
+#                                     For contigs with dpnII based bins, the original paths can be hundreds of
+#                                     bins long but this detailed information is not needed. Thus, merging by
+#                                     size only the id of the contig and the shorter (merged) path is kept.
+#                                     However, subsequent merges by size of scaffolds (union of contigs) need
+#                                     to refer to the original contigs and all information should be kept. This
+#                                     is achieved by using two PathGraph objects, one that holds the current
+#                                     paths based on the current matrix bin ids and other PathGraph object
+#                                     that holds the original contig bins.
+#
+#         Returns
+#         -------
+#
+#         Examples
+#         --------
+#         >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
+#         ... ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
+#         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+#         >>> S = Scaffolds(hic)
+#         >>> S.matrix_bins.path == {'c-0': [0, 1, 2, 3, 4, 5]}
+#         True
+#         >>> S.merge_to_size(target_length=20, reset_base_paths=True)
+#         >>> S.matrix.todense()
+#         matrix([[ 11.26259299,  21.9378206 ,  17.42795074],
+#                 [ 21.9378206 ,   6.86756935,  21.82307214],
+#                 [ 17.42795074,  21.82307214,  11.37726956]])
+#
+#         Now the 'c-0' contig path is shorter
+#         >>> S.pg_base.path == {'c-0': [0, 1, 2]}
+#         True
+#         >>> len(S.pg_base.node)
+#         3
+#         >>> S.pg_base.node
+#         {0: {'start': 0, 'length': 20, 'end': 20, 'name': 'c-0', 'coverage': 1.5}, \
+# 1: {'start': 20, 'length': 20, 'end': 40, 'name': 'c-0', 'coverage': 1.0}, \
+# 2: {'start': 40, 'length': 20, 'end': 60, 'name': 'c-0', 'coverage': 1.0}}
+#
+#
+#         """
+#         log.info("merge_to_size. flank_length: {:,}".format(target_length))
+#
+#         # flattened list of merged_paths  e.g [[1,2],[3,4],[5,6],[7,8]].
+#         # This is in contrast to a list containing split_path_envenly that may
+#         # look like [ [[1,2],[3,4]], [[5,6]] ]
+#         paths_flatten = []
+#         log.debug('value of reset paths is {}'.format(reset_base_paths))
+#         i = 0
+#
+#         pg_merge = PathGraph()
+#
+#         for path in self.get_all_paths():
+#             # split_path_envenly has the form [[0, 1], [2, 3], [4, 5]]
+#             # where each sub-list (e.g. [0,1]) has more or less the same size in bp
+#             split_path = self.split_path_envenly(path, target_length, 100)
+#
+#             # each sub path in the split_path_envenly list will become an index
+#             # in a new matrix after merging and correcting. To
+#             # keep track of the original path that give rise to the
+#             # bin, a new PathGraph node is created, having as id the future merged matrix
+#             # bin id, and having as attributes length and base path.
+#
+#             # For example, for a split_path_envenly list e.g. [[0,1], [2,3]]]
+#             # after merging (that is matrix merging of the respective bins e.g 0 and 1)
+#             # the [0,1] becomes bin [0] and [2,3] becomes bin 1. Thus, a PathGraph node with
+#             # id 0 is created, having as length the sum of 0 and 1, and having as base_pat [0,1]
+#
+#             # if reset_base_paths is True, then the merged paths become the
+#             # base paths. In this case node information contains extra values
+#
+#             # reset_base_paths is used for the first merge_to_size when is irrelevant to
+#             # keep the original high resolution paths that form a contig. After this
+#             # merge, it is important to keep track of the original or base paths.
+#
+#             merged_path = []
+#             path_name = self.pg_base.get_path_name_of_node(path[0])
+#             for index, sub_path in enumerate(split_path):
+#                 # prepare new PathGraph nodes
+#                 attr = {'length': sum([self.pg_base.node[x]['length'] for x in sub_path]),
+#                         'name': "{}/{}".format(path_name, index),
+#                         'initial_path': sub_path}
+#
+#                 pg_merge.add_node(i, attr_dict=attr)
+#
+#                 merged_path.append(i)
+#
+#                 i += 1
+#
+#             pg_merge.add_path(merged_path, name=path_name)
+#             paths_flatten.extend(split_path)
+#
+#         if len(paths_flatten) == 0:
+#             log.warn("Nothing to reduce.")
+#             return None
+#
+#         reduce_paths = paths_flatten[:]
+#
+#         if len(reduce_paths) < 2:
+#             log.info("Reduce paths to small {}. Returning".format(len(reduce_paths)))
+#             return None
+#
+#         reduced_matrix = reduce_matrix(self.matrix, reduce_paths, diagonal=True)
+#
+#         # correct reduced_matrix
+#         start_time = time.time()
+#         corrected_matrix = iterativeCorrection(reduced_matrix, M=1000, verbose=False)[0]
+#         elapsed_time = time.time() - start_time
+#         log.debug("time iterative_correction: {:.5f}".format(elapsed_time))
+#
+#         # update matrix
+#         self.matrix = corrected_matrix
+#
+#         self.pg_base = pg_merge
+#
+#         if reset_base_paths is True:
+#             self.reset_matrix_bins()
+#
+#         assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
 
-
-        Parameters
-        ----------
-        target_length : in bp
-        reset_base_paths: boolean   Reset means that the merge information is kept
-                                    as the primary data, otherwise the original paths
-                                    and node data is kept and the merge refers to this data. Why is this done?
-                                    For contigs with dpnII based bins, the original paths can be hundreds of
-                                    bins long but this detailed information is not needed. Thus, merging by
-                                    size only the id of the contig and the shorter (merged) path is kept.
-                                    However, subsequent merges by size of scaffolds (union of contigs) need
-                                    to refer to the original contigs and all information should be kept. This
-                                    is achieved by using two PathGraph objects, one that holds the current
-                                    paths based on the current matrix bin ids and other PathGraph object
-                                    that holds the original contig bins.
-
-        Returns
-        -------
-
-        Examples
-        --------
-        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
-        ... ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
-        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-        >>> S = Scaffolds(hic)
-        >>> S.pg_base.path == {'c-0': [0, 1, 2, 3, 4, 5]}
-        True
-        >>> S.merge_to_size(target_length=20, reset_base_paths=True)
-        >>> S.matrix.todense()
-        matrix([[ 11.26259299,  21.9378206 ,  17.42795074],
-                [ 21.9378206 ,   6.86756935,  21.82307214],
-                [ 17.42795074,  21.82307214,  11.37726956]])
-
-        Now the 'c-0' contig path is shorter
-        >>> S.pg_base.path == {'c-0': [0, 1, 2]}
-        True
-        >>> len(S.pg_base.node)
-        3
-        >>> S.pg_base.node
-        {0: {'start': 0, 'length': 20, 'end': 20, 'name': 'c-0', 'coverage': 1.5}, \
-1: {'start': 20, 'length': 20, 'end': 40, 'name': 'c-0', 'coverage': 1.0}, \
-2: {'start': 40, 'length': 20, 'end': 60, 'name': 'c-0', 'coverage': 1.0}}
-
-
-        """
-        log.info("merge_to_size. flank_length: {:,}".format(target_length))
-
-        # flattened list of merged_paths  e.g [[1,2],[3,4],[5,6],[7,8]].
-        # This is in contrast to a list containing split_path_envenly that may
-        # look like [ [[1,2],[3,4]], [[5,6]] ]
-        paths_flatten = []
-        log.debug('value of reset paths is {}'.format(reset_base_paths))
-        i = 0
-
-        pg_merge = PathGraph()
-
-        for path in self.get_all_paths():
-            # split_path_envenly has the form [[0, 1], [2, 3], [4, 5]]
-            # where each sub-list (e.g. [0,1]) has more or less the same size in bp
-            split_path = self.split_path_envenly(path, target_length, 100)
-
-            # each sub path in the split_path_envenly list will become an index
-            # in a new matrix after merging and correcting. To
-            # keep track of the original path that give rise to the
-            # bin, a new PathGraph node is created, having as id the future merged matrix
-            # bin id, and having as attributes length and base path.
-
-            # For example, for a split_path_envenly list e.g. [[0,1], [2,3]]]
-            # after merging (that is matrix merging of the respective bins e.g 0 and 1)
-            # the [0,1] becomes bin [0] and [2,3] becomes bin 1. Thus, a PathGraph node with
-            # id 0 is created, having as length the sum of 0 and 1, and having as base_pat [0,1]
-
-            # if reset_base_paths is True, then the merged paths become the
-            # base paths. In this case node information contains extra values
-
-            # reset_base_paths is used for the first merge_to_size when is irrelevant to
-            # keep the original high resolution paths that form a contig. After this
-            # merge, it is important to keep track of the original or base paths.
-
-            merged_path = []
-            path_name = self.pg_base.get_path_name_of_node(path[0])
-            for index, sub_path in enumerate(split_path):
-                # prepare new PathGraph nodes
-                attr = {'length': sum([self.pg_base.node[x]['length'] for x in sub_path]),
-                        'name': "{}/{}".format(path_name, index),
-                        'initial_path': sub_path}
-
-                pg_merge.add_node(i, attr_dict=attr)
-
-                merged_path.append(i)
-
-                i += 1
-
-            pg_merge.add_path(merged_path, name=path_name)
-            paths_flatten.extend(split_path)
-
-        if len(paths_flatten) == 0:
-            log.warn("Nothing to reduce.")
-            return None
-
-        reduce_paths = paths_flatten[:]
-
-        if len(reduce_paths) < 2:
-            log.info("Reduce paths to small {}. Returning".format(len(reduce_paths)))
-            return None
-
-        reduced_matrix = reduce_matrix(self.matrix, reduce_paths, diagonal=True)
-
-        # correct reduced_matrix
-        start_time = time.time()
-        corrected_matrix = iterativeCorrection(reduced_matrix, M=1000, verbose=False)[0]
-        elapsed_time = time.time() - start_time
-        log.debug("time iterative_correction: {:.5f}".format(elapsed_time))
-
-        # update matrix
-        self.matrix = corrected_matrix
-
-        if self.pg_initial is None:
-            self.pg_initial = self.pg_base
-        self.pg_base = pg_merge
-
-        if reset_base_paths is True:
-            self.reset_pg_initial()
-
-        assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
-
-    def reset_pg_initial(self):
+    def reset_matrix_bins(self):
         """
         This is a function called to reduce the information stored from original paths
         after merge_to_size is called for the first time.
@@ -672,8 +733,8 @@ class Scaffolds(object):
 
         """
 
-        if self.pg_initial is None:
-            log.debug("can't reset. pg_initial is not set")
+        if self.matrix_bins is None:
+            log.debug("can't reset. matrix_bins is not set")
             return
 
         pg_base = PathGraph()
@@ -687,11 +748,11 @@ class Scaffolds(object):
                 # prepare replacement for initial small nodes
                 first_node = initial_path[0]
                 last_node = initial_path[-1]
-                attr = {'name': self.pg_initial.node[first_node]['name'],
-                        'start': self.pg_initial.node[first_node]['start'],
-                        'end': self.pg_initial.node[last_node]['end'],
-                        'coverage': float(self.pg_initial.node[first_node]['coverage'] +
-                                          self.pg_initial.node[last_node]['coverage']) / 2}
+                attr = {'name': self.matrix_bins.node[first_node]['name'],
+                        'start': self.matrix_bins.node[first_node]['start'],
+                        'end': self.matrix_bins.node[last_node]['end'],
+                        'coverage': float(self.matrix_bins.node[first_node]['coverage'] +
+                                          self.matrix_bins.node[last_node]['coverage']) / 2}
                 assert attr['start'] < attr['end']
                 attr['length'] = attr['end'] - attr['start']
 
@@ -702,7 +763,7 @@ class Scaffolds(object):
             pg_base.add_path(path, name=path_name)
 
         self.pg_base = pg_base
-        self.pg_initial = None
+        self.matrix_bins = None
 
         # reset the hic matrix object
         self.hic.matrix = self.matrix
@@ -758,14 +819,14 @@ class Scaffolds(object):
             parts_left = parts
             count = 0
             for i in range(parts):
-                size = (remain + parts_left -1) / parts_left
+                size = (remain + parts_left - 1) / parts_left
                 if i % 2 == 0:
                     arr[count] = int(size)
                     count += 1
                 else:
                     arr[-count] = int(size)
                 remain -= size
-                parts_left -=1
+                parts_left -= 1
             return arr
 
         divided_path = []
@@ -818,7 +879,7 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
         >>> flank_length = 20
-        >>> S.split_path_envenly(S.pg_base[0], flank_length, 30)
+        >>> S.split_path_envenly(S.matrix_bins[0], flank_length, 30)
         [[0, 1], [2, 3], [4, 5]]
 
         # 5 bins, one internal is smaller than 20*75 (flank_length * tolerance) is skipped
@@ -827,7 +888,7 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
         >>> flank_length = 20
-        >>> S.split_path_envenly(S.pg_base[0], flank_length, 30)
+        >>> S.split_path_envenly(S.matrix_bins[0], flank_length, 30)
         [[0, 1], [3, 4]]
 
         Get the flanks, and do not recursively iterate
@@ -837,7 +898,7 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
         >>> flank_length = 10
-        >>> S.split_path_envenly(S.pg_base[0], flank_length, 1)
+        >>> S.split_path_envenly(S.matrix_bins[0], flank_length, 1)
         [[0], [4]]
 
         """
@@ -847,7 +908,7 @@ class Scaffolds(object):
 
         tolerance_max = flank_length * 1.25
         tolerance_min = flank_length * 0.75
-        path_length = dict([(x, self.pg_base.node[x]['length']) for x in path])
+        path_length = dict([(x, self.matrix_bins.node[x]['length']) for x in path])
         path_length_sum = sum(path_length.values())
         flanks = []
 
@@ -1242,8 +1303,13 @@ class Scaffolds(object):
 
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
         >>> S = Scaffolds(hic)
+        >>> S.split_and_merge_contigs(normalize_method=None)
         >>> list(S.get_all_paths())
         [[0], [1], [2], [3], [4], [5]]
+
+
+        >>> S.pg_base is None
+        False
 
         The weakest link for the hub 'b' (b-e) is removed
         >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=5)
@@ -1251,6 +1317,7 @@ class Scaffolds(object):
         [[0, 1, 2, 3], [4, 5]]
 
         >>> S = Scaffolds(hic)
+        >>> S.split_and_merge_contigs(normalize_method=None)
 
         By setting the node_degree threshold to 3 the
         'b' node (id 1) is skipped.
@@ -1261,15 +1328,16 @@ class Scaffolds(object):
         >>> list(S.get_all_paths())
         [[0], [1], [2, 3, 4, 5]]
 
-
         Test bandwidth permutation
         >>> S = Scaffolds(hic)
+        >>> S.split_and_merge_contigs(normalize_method=None)
         >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
         ... node_degree_threshold=5)
         >>> list(S.get_all_paths())
         [[0, 1, 2, 3, 4, 5]]
 
         >>> S = Scaffolds(hic)
+        >>> S.split_and_merge_contigs(normalize_method=None)
         >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
         ... node_degree_threshold=4)
         >>> list(S.get_all_paths())
@@ -1456,7 +1524,7 @@ class Scaffolds(object):
             else:
                 try:
                     self.add_edge(u, v, weight=data['weight'])
-                except ScaffoldException  as e:
+                except ScaffoldException as e:
                     log.warn(e)
                     pass
 
@@ -1493,10 +1561,46 @@ class Scaffolds(object):
         {1: {'weight': 5.0}, 2: {'weight': 5.0}, 3: {'weight': 2.0}, 4: {'weight': 2.0}, 5: {'weight': 2.0}}
         >>> G.node[0]
         {'start': 0, 'length': 10, 'end': 10, 'name': 'c-0', 'coverage': 1}
+
+
+        The following matrix is used:
+
+                      ______
+                     |      |
+                 a---b---c--d
+                      \    /
+                       --e--f
+                                0  1  2  3  4  5
+                                a  b  c  d  e  f
+        >>> matrix = np.array([[0, 3, 0, 0, 0, 0], # a 0
+        ...                    [0, 0, 3, 2, 2.5, 0], # b 1
+        ...                    [0, 0, 0, 3, 0, 0], # c 2
+        ...                    [0, 0, 0, 0, 1, 0], # d 3
+        ...                    [0, 0, 0, 0, 0, 3], # e 4
+        ...                    [0, 0, 0, 0, 0, 0]])# f 5
+
+        >>> cut_intervals = [('a', 0, 1, 1), ('b', 1, 2, 1), ('c', 2, 3, 1),
+        ... ('d', 0, 1, 1), ('e', 1, 2, 1), ('f', 0, 1, 1)]
+
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
+        >>> S = Scaffolds(hic)
+
+        >>> G = S.make_nx_graph()
+        >>> list(G.edges(data=True))
+        [(0, 1, {'weight': 3.0}), (1, 2, {'weight': 3.0}), \
+(1, 3, {'weight': 2.0}), (1, 4, {'weight': 2.5}), \
+(2, 3, {'weight': 3.0}), (3, 4, {'weight': 1.0}), \
+(4, 5, {'weight': 3.0})]
         """
 
         nxG = nx.Graph()
-        for node_id, node in self.pg_base.node.iteritems():
+        if self.pg_base is not None:
+            path_graph_to_use = self.pg_base
+        else:
+            path_graph_to_use = self.matrix_bins
+
+        for node_id, node in path_graph_to_use.node.iteritems():
             # when saving a networkx object, numpy number types or lists, are not accepted
             nn = node.copy()
             for attr, value in nn.iteritems():
@@ -1516,7 +1620,7 @@ class Scaffolds(object):
             if u == v:
                 continue
 
-            if u in self.pg_base[v]:
+            if u in path_graph_to_use[v]:
                 # u and v are in same path
                 nxG.add_edge(u, v, weight=float(max_weight))
             else:
@@ -1559,16 +1663,16 @@ class Scaffolds(object):
         >>> S.add_edge(3, 5)
         >>> S.scaffold.path
         {'c-0, c-1': ['c-0', 'c-1']}
-        >>> S.pg_base.path
+        >>> S.matrix_bins.path
         {'c-0, c-1': [0, 1, 2, 3, 5, 4]}
 
 
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
 
-        # after split and merge, we have pg_initial and pg_base (pg_base being the merge of contig)
+        # after split and merge, we have matrix_bins and pg_base (pg_base being the merge of contig)
         >>> S.add_edge(0, 1)
-        >>> S.pg_initial.path
+        >>> S.matrix_bins.path
         {'c-0, c-1': [0, 1, 2, 3, 5, 4]}
 
         >>> S.scaffold.path
@@ -1599,40 +1703,40 @@ class Scaffolds(object):
             else:
                 raise "error"
 
-        if self.pg_initial is not None:
-            # get the initial nodes that should be merged
+        # get the initial nodes that should be merged
+        try:
             initial_path_u = self.pg_base.node[u]['initial_path']
             initial_path_v = self.pg_base.node[v]['initial_path']
+        except:
+            initial_path_u = [u]
+            initial_path_v = [v]
 
-            best_paths = Scaffolds.find_best_permutation(self.hic.matrix, [initial_path_u, initial_path_v],
-                                                         return_all_sorted_best_paths=True)
-            path_added = False
-            for iter_ in range(len(best_paths)):
-                best_path = best_paths[iter_][0]
-                try:
-                    bin_u = best_path[0][-1]
-                    bin_v = best_path[1][0]
-                    self.pg_initial.add_edge(bin_u, bin_v, weight=weight)
-                    self.pg_base.add_edge(u, v, weight=weight)
-                    add_scaffold_edge(bin_u, bin_v, weight)
-                    path_added = True
-                except PathGraphEdgeNotPossible:
-                    log.debug("*WARN* Skipping add edge between {} and {} corresponding "
-                              "to {} and {}".format(u, v, self.pg_base.get_path_name_of_node(u),
-                                                    self.pg_base.get_path_name_of_node(v)))
-                    return
-                if path_added:
-                    break
-            if path_added is False:
-                raise ScaffoldException ("Can't add edge between {} and {} corresponding to ({}) and ({})"
-                                         "".format(u, v, self.pg_base.get_path_name_of_node(u),
-                                                   self.pg_base.get_path_name_of_node(v)))
-        else:
-            self.pg_base.add_edge(u, v, weight=weight)
-            add_scaffold_edge(u, v, weight)
+        best_paths = Scaffolds.find_best_permutation(self.hic.matrix, [initial_path_u, initial_path_v],
+                                                     return_all_sorted_best_paths=True)
+        path_added = False
+        for iter_ in range(len(best_paths)):
+            best_path = best_paths[iter_][0]
+            try:
+                bin_u = best_path[0][-1]
+                bin_v = best_path[1][0]
+                self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
+                self.pg_base.add_edge(u, v, weight=weight)
+                add_scaffold_edge(bin_u, bin_v, weight)
+                path_added = True
+            except PathGraphEdgeNotPossible:
+                log.debug("*WARN* Skipping add edge between {} and {} corresponding "
+                          "to {} and {}".format(u, v, self.pg_base.get_path_name_of_node(u),
+                                                self.pg_base.get_path_name_of_node(v)))
+                return
+            if path_added:
+                break
+        if path_added is False:
+            raise ScaffoldException ("Can't add edge between {} and {} corresponding to ({}) and ({})"
+                                     "".format(u, v, self.pg_base.get_path_name_of_node(u),
+                                               self.pg_base.get_path_name_of_node(v)))
 
     def delete_edge(self, u, v):
-        if self.pg_initial is not None:
+        if self.matrix_bins is not None:
             raise "deleting edges not allowed"
         else:
             self.pg_base.delete_edge(u, v)
@@ -1644,80 +1748,79 @@ class Scaffolds(object):
                     name, start, end, extra = self.hic.cut_intervals[node_id]
                     self.hic.cut_intervals[node_id] = (path_name, start, end, extra)
 
-    def add_edge_bk(self, u, v, weight=None):
-        """
-        Adds and edge both in the reduced PathGraph (pg_base) and in the
-        initial (non reduced) PathGraph.
-        Parameters
-        ----------
-        u node index
-        v node index
-        weight weight
-
-        Returns
-        -------
-
-        Examples
-        --------
-
-        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
-        ... ('c-0', 30, 40, 1), ('c-1', 40, 50, 1), ('c-1', 50, 60, 1)]
-        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-        >>> S = Scaffolds(hic)
-
-        >>> S.pg_base.path == {'c-0': [0, 1, 2, 3],
-        ...                    'c-1': [4, 5]}
-        True
-
-        >>> S.add_edge(3, 4, weight=10)
-        >>> S.pg_base.path == {'c-0, c-1': [0, 1, 2, 3, 4, 5]}
-        True
-        >>> S.pg_initial is None
-        True
-
-        Test case with merged bins
-        >>> S = Scaffolds(hic)
-        >>> S.merge_to_size(target_length=20, reset_base_paths=False)
-
-        >>> S.pg_base.path == {'c-0': [0, 1], 'c-1': [2, 3]}
-        True
-        >>> S.pg_initial.path == {'c-0': [0, 1, 2, 3], 'c-1': [4, 5]}
-        True
-
-        >>> S.add_edge_bk(1, 2, weight=10)
-        >>> S.pg_base.path == {'c-0, c-1': [0, 1, 2, 3]}
-        True
-
-        >>> S.pg_initial.path == {'c-0, c-1': [0, 1, 2, 3, 4, 5]}
-        True
-        """
-        path_added = False
-        if self.pg_initial is not None:
-            # get the initial nodes that should be merged
-            initial_path_u = self.pg_base.node[u]['initial_path']
-            initial_path_v = self.pg_base.node[v]['initial_path']
-
-            for index_u, index_v in [(0, 0), (0, -1), (-1, 0), (-1, -1)]:
-                # try all four combinations to join the `initial_path_u` and `initial_path_v`
-                # For example, for [c, d, e], [x, y, z], the attempt is to
-                # try to join (c, x), (c, z), (e, x), (e, z)
-                # Because c, can be part of the larger path [a, b, c, d, e], any edge
-                # containing 'e' can not be made and  the exception is raised.
-                try:
-                   self.pg_initial.add_edge(initial_path_u[index_u], initial_path_v[index_v], weight=weight)
-                   self.pg_base.add_edge(u, v, weight=weight)
-                   path_added = True
-                   break
-                except PathGraphEdgeNotPossible:
-                    pass
-            if path_added is False:
-                raise ScaffoldException ("Can't add edge between {} ({}) and {} ({})".format(u, v,
-                                                                                                self.pg_base.get_path_name_of_node(u),
-                                                                                                self.pg_base.get_path_name_of_node(v)))
-
-        else:
-           self.pg_base.add_edge(u, v, weight=weight)
-
+    # def add_edge_bk(self, u, v, weight=None):
+    #     """
+    #     Adds and edge both in the reduced PathGraph (pg_base) and in the
+    #     initial (non reduced) PathGraph.
+    #     Parameters
+    #     ----------
+    #     u node index
+    #     v node index
+    #     weight weight
+    #
+    #     Returns
+    #     -------
+    #
+    #     Examples
+    #     --------
+    #
+    #     >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
+    #     ... ('c-0', 30, 40, 1), ('c-1', 40, 50, 1), ('c-1', 50, 60, 1)]
+    #     >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+    #     >>> S = Scaffolds(hic)
+    #
+    #     >>> S.pg_base.path == {'c-0': [0, 1, 2, 3],
+    #     ...                    'c-1': [4, 5]}
+    #     True
+    #
+    #     >>> S.add_edge(3, 4, weight=10)
+    #     >>> S.pg_base.path == {'c-0, c-1': [0, 1, 2, 3, 4, 5]}
+    #     True
+    #     >>> S.matrix_bins is None
+    #     True
+    #
+    #     Test case with merged bins
+    #     >>> S = Scaffolds(hic)
+    #     >>> S.merge_to_size(target_length=20, reset_base_paths=False)
+    #
+    #     >>> S.pg_base.path == {'c-0': [0, 1], 'c-1': [2, 3]}
+    #     True
+    #     >>> S.matrix_bins.path == {'c-0': [0, 1, 2, 3], 'c-1': [4, 5]}
+    #     True
+    #
+    #     >>> S.add_edge_bk(1, 2, weight=10)
+    #     >>> S.pg_base.path == {'c-0, c-1': [0, 1, 2, 3]}
+    #     True
+    #
+    #     >>> S.matrix_bins.path == {'c-0, c-1': [0, 1, 2, 3, 4, 5]}
+    #     True
+    #     """
+    #     path_added = False
+    #     if self.matrix_bins is not None:
+    #         # get the initial nodes that should be merged
+    #         initial_path_u = self.pg_base.node[u]['initial_path']
+    #         initial_path_v = self.pg_base.node[v]['initial_path']
+    #
+    #         for index_u, index_v in [(0, 0), (0, -1), (-1, 0), (-1, -1)]:
+    #             # try all four combinations to join the `initial_path_u` and `initial_path_v`
+    #             # For example, for [c, d, e], [x, y, z], the attempt is to
+    #             # try to join (c, x), (c, z), (e, x), (e, z)
+    #             # Because c, can be part of the larger path [a, b, c, d, e], any edge
+    #             # containing 'e' can not be made and  the exception is raised.
+    #             try:
+    #                self.matrix_bins.add_edge(initial_path_u[index_u], initial_path_v[index_v], weight=weight)
+    #                self.pg_base.add_edge(u, v, weight=weight)
+    #                path_added = True
+    #                break
+    #             except PathGraphEdgeNotPossible:
+    #                 pass
+    #         if path_added is False:
+    #             raise ScaffoldException ("Can't add edge between {} ({}) and {} ({})".format(u, v,
+    #                                                                                             self.pg_base.get_path_name_of_node(u),
+    #                                                                                             self.pg_base.get_path_name_of_node(v)))
+    #
+    #     else:
+    #        self.pg_base.add_edge(u, v, weight=weight)
 
     @logit
     def get_nearest_neighbors(self, confidence_score):
@@ -1831,18 +1934,12 @@ class Scaffolds(object):
                 # s_path has the form: [1, 2, 3], [4, 5, 6]
                 u = path[-1]
                 v = s_path[index + 1][0]
-                try:
-                    self.pg_base.add_edge(u, v, weight=G[u, v])
-                except:
-                    import ipdb;ipdb.set_trace()
+                self.pg_base.add_edge(u, v, weight=G[u, v])
                 for node in [u, v]:
                     for adj in G.adj(node):
                         G[node, adj] = 0
 
         _join_degree_one_nodes()
-
-        import ipdb;ipdb.set_trace()
-
 
     @logit
     def get_nearest_neighbors_2(self, confidence_score):

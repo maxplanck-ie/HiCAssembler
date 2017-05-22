@@ -419,25 +419,25 @@ class HiCAssembler:
         import re
         super_scaffolds = []
 
-        for path in self.scaffolds_graph.pg_initial.path.values():
+        for path in self.scaffolds_graph.matrix_bins.path.values():
             prev_contig_name = None
             prev_node_id = None
             scaffold = []
             scaff_start = None
             scaff_end = None
             for node in path:
-                contig_name = self.scaffolds_graph.pg_initial.node[node]['name']
+                contig_name = self.scaffolds_graph.matrix_bins.node[node]['name']
                 if add_split_contig_name is False:
                     # check if node name has an indication that it was split (by ending in '/n')
                     res = re.search("(.*?)/(\d+)$", contig_name)
                     if res is not None:
                         contig_name = res.group(1)
 
-                start = self.scaffolds_graph.pg_initial.node[node]['start']
+                start = self.scaffolds_graph.matrix_bins.node[node]['start']
                 if scaff_start is None or start < scaff_start:
                     scaff_start = start
 
-                end = self.scaffolds_graph.pg_initial.node[node]['end']
+                end = self.scaffolds_graph.matrix_bins.node[node]['end']
                 if scaff_end is None or scaff_end < end:
                     scaff_end = end
 
@@ -467,7 +467,7 @@ class HiCAssembler:
         scaff_boundaries = OrderedDict()
         start_bin = 0
         try:
-            for name, path in self.scaffolds_graph.pg_initial.path.iteritems():
+            for name, path in self.scaffolds_graph.matrix_bins.path.iteritems():
                 order_list.extend(path)
                 scaff_boundaries[name] = (start_bin, start_bin + len(path))
                 start_bin += len(path)

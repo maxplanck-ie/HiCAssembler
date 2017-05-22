@@ -242,15 +242,30 @@ class Scaffolds(object):
         [[3, 4], [5]]
         >>> S.removed_bins.node[5]
         {'start': 0, 'length': 10, 'end': 10, 'name': 'c-3', 'coverage': 1}
+
+        Test removal of bins and scaffold when two scaffolds are already merged
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 50, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.add_edge(4, 5)
+        >>> list(S.scaffold.get_all_paths())
+        [['c-2', 'c-3'], ['c-0']]
+        >>> S.remove_small_paths(30)
+        >>> list(S.scaffold.get_all_paths())
+        [['c-0']]
+        >>> list(S.removed_scaffolds.get_all_paths())
+        [['c-2', 'c-3']]
+
         """
 
         to_remove = []
         to_remove_paths = []
-        self.removed_bins = PathGraph()
-        self.removed_scaffolds = PathGraph()
         paths_total = 0
         length_total = 0
         removed_length_total = 0
+        # if min_length == 30:
+        #     import ipdb;ipdb.set_trace()
         paths_list = list(self.matrix_bins.get_all_paths())
         for path in paths_list:
             paths_total += 1
@@ -267,7 +282,8 @@ class Scaffolds(object):
 
                 for bin_node in path:
                     self.removed_bins.add_node(bin_node, **self.matrix_bins.node[bin_node])
-                    self.removed_scaffolds.add_node(scaffold_id, **self.scaffold.node[scaffold_id])
+                for scaffold_name in self.scaffold[scaffold_id]:
+                    self.removed_scaffolds.add_node(scaffold_name, **self.scaffold.node[scaffold_name])
 
                 # remove matrix_bins path
                 self.matrix_bins.delete_path_containing_node(path[0], delete_nodes=True)

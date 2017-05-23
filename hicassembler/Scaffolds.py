@@ -1724,8 +1724,8 @@ class Scaffolds(object):
 
     def add_edge(self, u, v, weight=None):
         """
-        Adds and edge both in the reduced PathGraph (pg_base) and in the
-        initial (non reduced) PathGraph.
+        Adds and edge both in the reduced PathGraph (pg_base), in the
+        matrix_bins PathGraph and in the scaffolds PathGraph
         Parameters
         ----------
         u node index
@@ -1855,17 +1855,52 @@ class Scaffolds(object):
                                                self.pg_base.get_path_name_of_node(v)))
 
     def delete_edge(self, u, v):
-        if self.matrix_bins is not None:
-            raise "deleting edges not allowed"
-        else:
-            self.pg_base.delete_edge(u, v)
-            for node in [u, v]:
-                # get new name of path (assigned_automatically by PathGraph)
-                path_name = self.pg_base.get_path_name_of_node(node)
-                # get the ids that belong to that path
-                for node_id in self.pg_base.path[path_name]:
-                    name, start, end, extra = self.hic.cut_intervals[node_id]
-                    self.hic.cut_intervals[node_id] = (path_name, start, end, extra)
+        """
+        deletes edge u,v. The edge is assumed to be
+        from the matrix_bins PathGraph.
+
+        THE EDGE IS NOT DELETED FROM pg_base
+
+        Examples
+        --------
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.delete_edge(1,2)
+        Traceback (most recent call last):
+        ...
+        ScaffoldException: *ERROR* Edge can not be deleted inside an scaffold.
+        Scaffold name: c-0, edge: 1-2
+        >>> S.add_edge(2, 3)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2, 3, 4], [5]]
+        >>> list(S.scaffold.get_all_paths())
+        [['c-3'], ['c-0', 'c-2']]
+        >>> S.delete_edge(2, 3)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2], [3, 4], [5]]
+        >>> list(S.scaffold.get_all_paths())
+        [['c-3'], ['c-2'], ['c-0']]
+        """
+        # delete edge in self.scaffold
+        scaff_u = self.bin_id_to_scaff[u]
+        scaff_v = self.bin_id_to_scaff[v]
+        if scaff_u == scaff_v:
+            raise ScaffoldException("*ERROR* Edge can not be deleted inside an scaffold.\n"
+                                    "Scaffold name: {}, edge: {}-{}".format(scaff_u, u, v))
+        self.matrix_bins.delete_edge(u, v)
+
+        self.scaffold.delete_edge(scaff_u, scaff_v)
+
+        # self.pg_base.delete_edge(u, v)
+        # for node in [u, v]:
+        #     # get new name of path (assigned_automatically by PathGraph)
+        #     path_name = self.pg_base.get_path_name_of_node(node)
+        #     # get the ids that belong to that path
+        #     for node_id in self.pg_base.path[path_name]:
+        #         name, start, end, extra = self.hic.cut_intervals[node_id]
+        #         self.hic.cut_intervals[node_id] = (path_name, start, end, extra)
 
     # def add_edge_bk(self, u, v, weight=None):
     #     """

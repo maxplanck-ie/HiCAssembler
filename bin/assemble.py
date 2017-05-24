@@ -39,7 +39,7 @@ def parse_arguments(args=None):
                         help='fasta used for the hic',
                         required=True)
 
-    return(parser.parse_args(args))
+    return parser.parse_args(args)
 
 
 def dot_plot_super_contigs(super_contigs):

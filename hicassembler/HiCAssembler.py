@@ -355,18 +355,12 @@ class HiCAssembler:
                             x_b = path_x[0]
                             nxG.node[scaff_x]['direction'] = '-'
 
-                        try:
-                            self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
-                        except:
-                            import ipdb;ipdb.set_trace()
-                        try:
-                            self.scaffolds_graph.add_edge_matrix_bins(u, x_a)
-                        except:
-                            import ipdb;ipdb.set_trace()
+                        self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
+                        self.scaffolds_graph.add_edge_matrix_bins(u, x_a)
                     self.scaffolds_graph.add_edge_matrix_bins(x_b, v)
 
                 # case when node is not on the borders of a path
-                if len(self.scaffolds_graph.scaffold.adj[scaff_b].keys()) == 2:
+                elif len(self.scaffolds_graph.scaffold.adj[scaff_b].keys()) == 2:
                     # find the best permutation to accommodate the node
                     idx_b = self.scaffolds_graph.scaffold[scaff_b].index(scaff_b)
                     path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
@@ -619,41 +613,6 @@ class HiCAssembler:
             super_scaffolds.append(scaffold)
 
         return super_scaffolds
-
-        for path in self.scaffolds_graph.matrix_bins.path.values():
-            prev_contig_name = None
-            prev_node_id = None
-            scaffold = []
-            scaff_start = None
-            scaff_end = None
-            for node in path:
-                contig_name = self.scaffolds_graph.matrix_bins.node[node]['name']
-                if add_split_contig_name is False:
-                    # check if node name has an indication that it was split (by ending in '/n')
-                    res = re.search("(.*?)/(\d+)$", contig_name)
-                    if res is not None:
-                        contig_name = res.group(1)
-
-                start = self.scaffolds_graph.matrix_bins.node[node]['start']
-                if scaff_start is None or start < scaff_start:
-                    scaff_start = start
-
-                end = self.scaffolds_graph.matrix_bins.node[node]['end']
-                if scaff_end is None or scaff_end < end:
-                    scaff_end = end
-
-                if prev_contig_name is not None and contig_name != prev_contig_name:
-                    scaffold.append((prev_contig_name, scaff_start, scaff_end, direction))
-                else:
-                    if node > prev_node_id:
-                        direction = '+'
-                    else:
-                        direction = '-'
-                prev_contig_name = contig_name
-                prev_node_id = node
-            scaffold.append((contig_name, scaff_start, scaff_end, direction))
-            super_scaffolds.append(scaffold)
-        return super_scaffolds, self.scaffolds_graph.get_all_paths()
 
     def reorder_matrix(self):
         """

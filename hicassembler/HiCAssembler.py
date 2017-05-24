@@ -16,14 +16,14 @@ from hicassembler.Scaffolds import Scaffolds
 
 import logging
 log = logging.getLogger("HiCAssembler")
-#log.setLevel(logging.DEBUG)
-log.setLevel(logging.INFO)
+log.setLevel(logging.DEBUG)
+# log.setLevel(logging.INFO)
 
 #log.basicConfig(format='%(levelname)s[%(funcName)s]:%(message)s', level=logging.DEBUG)
 
 POWER_LAW_DECAY = 2**(-1.08)  # expected exponential decay at 2*distance
 
-MIN_LENGTH = 300000  # minimum contig or PE_scaffold length to consider
+MIN_LENGTH = 400000  # minimum contig or PE_scaffold length to consider
 ZSCORE_THRESHOLD = -1 # zscore threshold to declare a boundary a misassembly
 MIN_MAD = -0.5  # minimum zscore row contacts to filter low scoring bins
 MAX_MAD = 50  # maximum zscore row contacts
@@ -53,7 +53,9 @@ def timeit(fn):
 
 
 class HiCAssembler:
-    def __init__(self, hic_file_name, fasta_file, out_folder, min_mad=MIN_MAD, max_mad=MAX_MAD):
+    def __init__(self, hic_file_name, fasta_file, out_folder,
+                 min_mad=MIN_MAD, max_mad=MAX_MAD, split_misassemblies=True,
+                 min_scaffold_length=MIN_LENGTH):
         """
         Prepares a hic matrix for assembly.
         It is expected that initial contigs or scaffolds contain bins
@@ -61,7 +63,7 @@ class HiCAssembler:
 
         Parameters
         ----------
-        hic : HiCMatrix object
+        hic_file_name : hic file name or a HiCMatrix object
         min_mad : minimum MAD score value per bin
         max_mad : maximum MAD score value per bin
         Returns
@@ -80,45 +82,51 @@ class HiCAssembler:
         self.fasta_file = fasta_file
         self.out_folder = out_folder
 
-        log.info("Loading Hi-C matrix ... ")
-        # check is a lower resolution matrix is available
-        merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"
-        # check if the computation for the misassembly score was already done
-        if os.path.isfile(merged_bins_matrix_file):
-            log.info("Found reduced matrix file {}".format(merged_bins_matrix_file))
-            self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
+        if not isinstance(hic_file_name, str):
+            # assume that the hic given is already a HiCMatrix object
+            # this is normally used for testing
+            self.hic = hic_file_name
         else:
-            self.hic = HiCMatrix.hiCMatrix(hic_file_name)
-            log.info("Finish")
-            binsize = self.hic.getBinSize()
-            if binsize < 25000:
-                # make an smaller matrix having bins of around 25.000 bp
-                num_bins = 25000 / binsize
+            log.info("Loading Hi-C matrix ... ")
+            # check is a lower resolution matrix is available
+            merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"
+            # check if the computation for the misassembly score was already done
+            if os.path.isfile(merged_bins_matrix_file):
+                log.info("Found reduced matrix file {}".format(merged_bins_matrix_file))
+                self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
+            else:
+                self.hic = HiCMatrix.hiCMatrix(hic_file_name)
+                log.info("Finish")
+                binsize = self.hic.getBinSize()
+                if binsize < 25000:
+                    # make an smaller matrix having bins of around 25.000 bp
+                    num_bins = 25000 / binsize
 
-                from hicexplorer.hicMergeMatrixBins import merge_bins
-                log.info("Reducing matrix size to 25.000 bp (number of bins merged: {})".format(num_bins))
-                self.hic = merge_bins(self.hic, num_bins)
-            # remove empty bins
-            self.hic.maskBins(self.hic.nan_bins)
-            try:
-                del self.hic.orig_bin_ids
-                del self.hic.orig_cut_intervals
-                self.hic.correction_factors = None
-            except:
-                pass
+                    from hicexplorer.hicMergeMatrixBins import merge_bins
+                    log.info("Reducing matrix size to 25.000 bp (number of bins merged: {})".format(num_bins))
+                    self.hic = merge_bins(self.hic, num_bins)
+                # remove empty bins
+                self.hic.maskBins(self.hic.nan_bins)
+                try:
+                    del self.hic.orig_bin_ids
+                    del self.hic.orig_cut_intervals
+                    self.hic.correction_factors = None
+                except:
+                    pass
 
-            self.hic.save(merged_bins_matrix_file)
+                self.hic.save(merged_bins_matrix_file)
 
         self.min_mad = min_mad
         self.max_mad = max_mad
-
+        self.min_scaffold_length = min_scaffold_length
         self.merged_paths = None
         self.iteration = 0
 
         #self.remove_noise_from_matrix()
 
-        # try to find contigs that probably should be separated
-        self.split_misassemblies(hic_file_name)
+        if split_misassemblies:
+            # try to find contigs that probably should be separated
+            self.split_misassemblies(hic_file_name)
 
         # build scaffolds graph. Bins on the same contig are
         # put together into a path (a type of graph with max degree = 2)
@@ -126,7 +134,7 @@ class HiCAssembler:
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
-        self.scaffolds_graph.remove_small_paths(MIN_LENGTH)
+        self.scaffolds_graph.remove_small_paths(self.min_scaffold_length)
         assert mat_size == self.scaffolds_graph.hic.matrix.shape
 
         self.N50 = []
@@ -166,11 +174,80 @@ class HiCAssembler:
             # if iteration == 1:
             #     self.scaffolds_graph.remove_small_paths(MIN_LENGTH*1.5)
 
-            if iteration ==3:
-                self.put_back_small_scaffolds()
+
+        self.put_back_small_scaffolds()
+        self.plot_matrix(self.out_folder + "/after_put_scaff_back.pdf".format(iteration), title="After assembly", add_vlines=True)
 
         print self.N50
         return self.get_contig_order()
+
+    def make_scaffold_network(self, orig_scaff):
+        """
+
+        Parameters
+        ----------
+        orig_scaff
+
+        Returns
+        -------
+
+        Examples
+        --------
+
+        >>> from hicassembler.Scaffolds import get_test_matrix as get_test_matrix
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 30, 2), ('c-1', 0, 10, 1),
+        ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 30, 1)]
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=20)
+        >>> H.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='none')
+        >>> H.scaffolds_graph.add_edge(0, 1)
+        >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
+        [[0, 1, 5, 4]]
+        >>> orig_scaff = Scaffolds(H.hic)
+        >>> orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method='none')
+
+        In orig_scaff only the scaffold paths are represented. It contains all scaffolds
+        including deleted ones in self.scaffold_graph. No connections between scaffolds
+        are present
+        >>> list(orig_scaff.matrix_bins.get_all_paths())
+        [[0, 1], [2, 3], [4, 5]]
+        >>> G = H.make_scaffold_network(orig_scaff)
+        >>> list(G.edges(data=True))
+        [('c-2', 'c-1', {'weight': 16.0}), ('c-2', 'c-0', {'weight': 42.0}), \
+('c-1', 'c-0', {'weight': 28.0})]
+
+        """
+        nxG = nx.Graph()
+        for node_id, node in orig_scaff.scaffold.node.iteritems():
+            nn = node.copy()
+            for attr, value in nn.iteritems():
+                if isinstance(value, np.int64):
+                    nn[attr] = int(value)
+                elif isinstance(value, np.float64):
+                    nn[attr] = float(value)
+                elif isinstance(value, list):
+                    nn[attr] = ", ".join([str(x) for x in value])
+                elif isinstance(value, np.string_):
+                    nn[attr] = str(value)
+
+            nxG.add_node(node_id, **nn)
+
+        matrix = orig_scaff.matrix.tocoo()
+        max_weight = float(orig_scaff.matrix.max() * 1.5)
+        for u, v, weight in zip(matrix.row, matrix.col, matrix.data):
+            if u == v:
+                continue
+            scaff_u = orig_scaff.pg_base.node[u]['name']
+            scaff_v = orig_scaff.pg_base.node[v]['name']
+            nxG.add_edge(scaff_u, scaff_v, weight=float(weight))
+            if scaff_u in self.scaffolds_graph.scaffold.node and \
+               scaff_v in self.scaffolds_graph.scaffold.node and \
+               scaff_u in self.scaffolds_graph.scaffold.adj[scaff_v]:
+                # u and v are directly joined
+                nxG.add_edge(scaff_u, scaff_v, weight=float(max_weight))
+
+        return nxG
 
     def put_back_small_scaffolds(self):
         """
@@ -182,33 +259,28 @@ class HiCAssembler:
 
         Examples
         --------
+        >>> from hicassembler.Scaffolds import get_test_matrix as get_test_matrix
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 30, 2), ('c-1', 0, 10, 1),
+        ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 30, 1)]
 
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=20)
+        >>> H.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='none')
+        >>> H.scaffolds_graph.add_edge(0, 1)
+        >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
+        [[0, 1, 5, 4]]
 
-        """
+        >>> H.put_back_small_scaffolds()
+        >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
+        [[0, 1, 2, 3, 5, 4]]
+       """
 
         orig_scaff = Scaffolds(self.hic)
         orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method='ice')
-        nxG = orig_scaff.make_nx_graph()
-        # get node id
-        name2id = dict([(nxG.node[x]['name'], x) for x in nxG.node])
 
-        # CONSTRUCTION OF BACKBONE
-        backbone_order = self.get_contig_order(add_split_contig_name=True)
-        max_value = float(orig_scaff.matrix.max() * 1.5)
-
-        for super_scaff in backbone_order[0]:
-            for idx in range(len(super_scaff) -1):
-                # the structure of super_scaff elements is
-                # (name, start, end, direction). Here I only care about the name
-                node_u = name2id[super_scaff[idx][0]]
-                node_v = name2id[super_scaff[idx + 1][0]]
-                nxG.add_edge(node_u, node_v, weight=max_value)
-                nxG.node[node_u]['direction'] = super_scaff[idx][-1]
-                assert nxG.node[node_u]['name'] == super_scaff[idx][0]
-
-            nxG.node[node_v]['direction'] = super_scaff[idx + 1][-1]
-            assert nxG.node[node_v]['name'] == super_scaff[idx + 1][0]
-
+        # reset pb_base
+        self.scaffolds_graph.pg_base = copy.deepcopy(self.scaffolds_graph.matrix_bins)
+        nxG = self.make_scaffold_network(orig_scaff)
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
         nx.write_graphml(nxG, self.out_folder + "/mst_for_small_Scaff_integration.graphml".format())
 
@@ -218,25 +290,101 @@ class HiCAssembler:
         #   o---o---o
         #       \--o  <- easy to put back
         #          X
-        node_degree_mst = dict(nxG.degree(nxG.node.keys()))
 
-        for scaffold_name in self.scaffolds_graph.removed_scaffolds.node.keys():
-            if node_degree_mst[name2id[scaffold_name]] == 1:
-                node_x = name2id[scaffold_name]
-                node_b = nxG.edge[node_x].keys()[0]
-                if nxG.degree(node_b) == 3:
+        scaff_degree_mst = dict(nxG.degree(nxG.node.keys()))
+
+        # iterate over all removed scaffolds
+        removed_scaffolds = self.scaffolds_graph.removed_scaffolds.node.keys()
+        for scaff_x in removed_scaffolds:
+            if nxG.degree(scaff_x) == 1:
+                scaff_b = nxG.edge[scaff_x].keys()[0]
+                # check that scaff_b is not a removed scaffold
+                if scaff_b in self.scaffolds_graph.removed_scaffolds.node:
+                    log.info("Scaffold is also removed {}".format(scaff_b))
+                    continue
+
+                # Case when the node is the last or first in a path
+                if len(self.scaffolds_graph.scaffold.adj[scaff_b].keys()) == 1:
+                    idx_b = self.scaffolds_graph.scaffold[scaff_b].index(scaff_b)
+                    if idx_b == 0:
+                        scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b + 1]
+                    else:
+                        scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b - 1]
+                        log.debug("FIXME: last node node implemented")
+                        continue
+                    path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
+                    path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
+                    path_c = self.scaffolds_graph.scaffold.node[scaff_c]['path']
+
+                    path_1 = [path_x, path_b, path_c]
+                    path_2 = [path_x[::-1], path_b, path_c]
+                    path_3 = [path_b, path_x, path_c]
+                    path_4 = [path_b, path_x[::-1], path_c]
+
+                    best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, path_1,
+                                                                list_of_permutations=[path_1, path_2, path_3, path_4])
+
+                    # add the scaffold back to the scaffold_graph
+                    self.scaffolds_graph.restore_scaffold(scaff_x)
+                    # modify the network
+                    if best_path == path_1 or best_path == path_2:
+                        nxG.add_edge(scaff_x, scaff_b)
+                        v = path_b[0]
+                        if best_path == path_1:
+                            x_a = path_x[0]
+                            x_b = path_x[-1]
+                            nxG.node[scaff_x]['direction'] = '+'
+                        else:
+                            x_a = path_x[-1]
+                            x_b = path_x[0]
+                            nxG.node[scaff_x]['direction'] = '-'
+
+                    elif best_path == path_3 or best_path == path_4:
+                        nxG.remove_edge(scaff_b, scaff_c)
+                        nxG.add_edge(scaff_b, scaff_x)
+                        nxG.add_edge(scaff_x, scaff_c)
+                        u = path_b[-1]
+                        v = path_c[0]
+
+                        if best_path == path_3:
+                            x_a = path_x[0]
+                            x_b = path_x[-1]
+                            nxG.node[scaff_x]['direction'] = '+'
+                        else:
+                            x_a = path_x[-1]
+                            x_b = path_x[0]
+                            nxG.node[scaff_x]['direction'] = '-'
+
+                        try:
+                            self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
+                        except:
+                            import ipdb;ipdb.set_trace()
+                        try:
+                            self.scaffolds_graph.add_edge_matrix_bins(u, x_a)
+                        except:
+                            import ipdb;ipdb.set_trace()
+                    self.scaffolds_graph.add_edge_matrix_bins(x_b, v)
+
+                # case when node is not on the borders of a path
+                if len(self.scaffolds_graph.scaffold.adj[scaff_b].keys()) == 2:
                     # find the best permutation to accommodate the node
-                    path_b = orig_scaff.pg_base.node[node_b]['initial_path']
-                    if nxG.node[node_b]['direction'] == '-':
-                        path_b = path_b[::-1]
-                    path_x = orig_scaff.pg_base.node[node_x]['initial_path']
-                    node_a, node_c = [x for x in nxG.edge[node_b].keys() if x not in [node_x, node_b]]
-                    path_a = orig_scaff.pg_base.node[node_a]['initial_path']
-                    if nxG.node[node_a]['direction'] == '-':
-                        path_a = path_a[::-1]
-                    path_c = orig_scaff.pg_base.node[node_c]['initial_path']
-                    if nxG.node[node_c]['direction'] == '-':
-                        path_a = path_c[::-1]
+                    idx_b = self.scaffolds_graph.scaffold[scaff_b].index(scaff_b)
+                    path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
+                    path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
+                    scaff_a = self.scaffolds_graph.scaffold[scaff_b][idx_b - 1]
+                    try:
+                        scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b + 1]
+                    except:
+                        import ipdb;ipdb.set_trace()
+
+                    if scaff_a in self.scaffolds_graph.removed_scaffolds.node:
+                        log.info("Scaffold is also removed {}".format(scaff_a))
+                        continue
+                    if scaff_c in self.scaffolds_graph.removed_scaffolds.node:
+                        log.info("Scaffold is also removed {}".format(scaff_c))
+                        continue
+                    path_a = self.scaffolds_graph.scaffold.node[scaff_a]['path']
+                    path_c = self.scaffolds_graph.scaffold.node[scaff_c]['path']
 
                     # in the image above: for X to be inserted next to B, either A-B or B-C needs to be
                     # broken. Thus, only two options are available:
@@ -251,58 +399,45 @@ class HiCAssembler:
                                                                 list_of_permutations=[path_1, path_2, path_3, path_4])
 
                     # add the scaffold back to the scaffold_graph
-                    self.scaffolds_graph.restore_scaffold(scaffold_name)
+                    self.scaffolds_graph.restore_scaffold(scaff_x)
                     # modify the network
                     if best_path == path_1 or best_path == path_2:
-                        nxG.remove_edge(node_b, node_c)
-                        nxG.add_edge(node_b, node_x)
-                        nxG.add_edge(node_x, node_c)
+                        nxG.remove_edge(scaff_a, scaff_b)
+                        nxG.add_edge(scaff_a, scaff_x)
+                        nxG.add_edge(scaff_x, scaff_b)
                         u = path_a[-1]
                         v = path_b[0]
                         if best_path == path_1:
                             x_a = path_x[0]
                             x_b = path_x[-1]
-                            nxG.node[node_x]['direction'] = '+'
+                            nxG.node[scaff_x]['direction'] = '+'
                         else:
                             x_a = path_x[-1]
                             x_b = path_x[0]
-                            nxG.node[node_x]['direction'] = '-'
+                            nxG.node[scaff_x]['direction'] = '-'
                     elif best_path == path_3 or best_path == path_4:
-                        nxG.remove_edge(node_b, node_c)
-                        nxG.add_edge(node_b, node_x)
-                        nxG.add_edge(node_x, node_c)
+                        nxG.remove_edge(scaff_b, scaff_c)
+                        nxG.add_edge(scaff_b, scaff_x)
+                        nxG.add_edge(scaff_x, scaff_c)
                         u = path_b[-1]
                         v = path_c[0]
 
                         if best_path == path_3:
                             x_a = path_x[0]
                             x_b = path_x[-1]
-                            nxG.node[node_x]['direction'] = '+'
+                            nxG.node[scaff_x]['direction'] = '+'
                         else:
                             x_a = path_x[-1]
                             x_b = path_x[0]
-                            nxG.node[node_x]['direction'] = '-'
+                            nxG.node[scaff_x]['direction'] = '-'
 
-                    self.scaffolds_graph.delete_edge(u, v)
-                    self.scaffolds_graph.add_edge(u, x_a)
-                    self.scaffolds_graph.add_edge(x_b, v)
-                    import ipdb;ipdb.set_trace()
-
-        # identify removed scaffolds
-        # idea 1: Use the super-scaffolds already resolved as a backbone and
-        # add the missing nodes and contacts and compute a mst
-
-        # 1. make backbones
-
-        removed = {}
-        orig_scaff = self.hic.chrBinBoundaries.keys()
-        for scaff in orig_scaff:
-            if scaff not in self.scaffolds_graph.hic.chrBinBoundaries.keys():
-                log.info("Inserting {} back into super-scaffolds".format(scaff))
-
-
-                # idea 2: look at the closest neighbors of scaff and
-                # use best permutation to find how to insert it.
+                    try:
+                        self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
+                    except:
+                        import ipdb;ipdb.set_trace()
+                    self.scaffolds_graph.add_edge_matrix_bins(u, x_a)
+                    self.scaffolds_graph.add_edge_matrix_bins(x_b, v)
+                log.info("Scaffold {} successfully integrated into the network".format(scaff_x))
 
     def split_misassemblies(self, hic_file_name):
         """
@@ -441,8 +576,49 @@ class HiCAssembler:
         self.hic.matrix.eliminate_zeros()
 
     def get_contig_order(self, add_split_contig_name=False):
+        """
+
+        Parameters
+        ----------
+        add_split_contig_name
+
+        Returns
+        -------
+
+        Examples
+        --------
+        >>> from hicassembler.Scaffolds import get_test_matrix as get_test_matrix
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 30, 2), ('c-1', 0, 10, 1),
+        ... ('c-1', 10, 20, 1), ('c-2/1', 0, 10, 1), ('c-2/2', 10, 30, 1)]
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=0)
+        >>> H.scaffolds_graph.add_edge_matrix_bins(1,2)
+        >>> H.get_contig_order()
+        [[('c-2', 10, 30, '+')], [('c-2', 0, 10, '+')], [('c-0', 0, 30, '+'), ('c-1', 0, 20, '+')]]
+
+        >>> H.get_contig_order(add_split_contig_name=True)
+        [[('c-2/2', 10, 30, '+')], [('c-2/1', 0, 10, '+')], [('c-0', 0, 30, '+'), ('c-1', 0, 20, '+')]]
+        """
         import re
         super_scaffolds = []
+
+        for path in self.scaffolds_graph.scaffold.get_all_paths():
+            scaffold = []
+            for scaff_name in path:
+                scaff_data = self.scaffolds_graph.scaffold.node[scaff_name]
+                if add_split_contig_name is False:
+                    # check if node name has an indication that it was split (by ending in '/n')
+                    res = re.search("(.*?)/(\d+)$", scaff_name)
+                    if res is not None:
+                        scaff_name = res.group(1)
+
+                scaffold.append((scaff_name, scaff_data['start'],
+                                 scaff_data['end'], scaff_data['direction']))
+
+            super_scaffolds.append(scaffold)
+
+        return super_scaffolds
 
         for path in self.scaffolds_graph.matrix_bins.path.values():
             prev_contig_name = None

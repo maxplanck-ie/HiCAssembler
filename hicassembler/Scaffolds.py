@@ -569,6 +569,12 @@ class Scaffolds(object):
 1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1'}, \
 2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2'}}
 
+        >>> S.matrix_bins.node[0]['merged_path_id']
+        0
+        >>> S.matrix_bins.node[5]['merged_path_id']
+        2
+        >>> S.scaffold.node['c-1']['merged_path_id']
+        1
         >>> S.matrix.todense()
         matrix([[12,  8,  8],
                 [ 8,  6,  8],
@@ -597,7 +603,6 @@ class Scaffolds(object):
         i = 0
         self.pg_base = PathGraph()
         for path in self.get_all_paths():
-#        for path in self.matrix_bins.path.values():
             # split_path has the form [[0, 1 ,2], [3, 4], [5, 6, 7]]
             split_path = Scaffolds.split_path(path, num_splits)
             # each sub path in the split_path list will become an index
@@ -632,6 +637,15 @@ class Scaffolds(object):
                 attr = {'length': length,
                         'name': name,
                         'initial_path': sub_path}
+                scaffold_name_set = set()
+                # update matrix_bin nodes to refer to the new merged path id
+                for bin_id in sub_path:
+                    self.matrix_bins.node[bin_id]['merged_path_id'] = i
+                    scaffold_name_set.add(self.matrix_bins.node[bin_id]['name'])
+                # update self.scaffold nodes to refer to the new merged path id
+                for scaff_name in scaffold_name_set:
+                    self.scaffold.node[scaff_name]['merged_path_id'] = i
+
                 self.pg_base.add_node(i, attr_dict=attr)
 
                 merged_path.append(i)
@@ -1722,6 +1736,39 @@ class Scaffolds(object):
 
         return nxG
 
+    def add_scaffold_edge(self,_bin_u, _bin_v, _weight, direction):
+        scaffold_u = self.bin_id_to_scaff[_bin_u]
+        scaffold_v = self.bin_id_to_scaff[_bin_v]
+        if direction[0] == '-':
+            for scaff_name in self.scaffold[scaffold_u]:
+                if self.scaffold.node[scaff_name]['direction'] == "+":
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                elif self.scaffold.node[scaff_name]['direction'] == "-":
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                else: # when direction has not been set:
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
+
+        if direction[1] == '-':
+            for scaff_name in self.scaffold[scaffold_v]:
+                if self.scaffold.node[scaff_name]['direction'] == "+":
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                elif self.scaffold.node[scaff_name]['direction'] == "-":
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                else: # when direction has not been set:
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
+
+        self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)
+
+
+    def add_edge_matrix_bins(self, bin_u, bin_v, weight=None):
+        try:
+            direction = self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
+            self.add_scaffold_edge(bin_u, bin_v, weight, direction)
+        except PathGraphEdgeNotPossible:
+            log.debug("*WARN* Skipping add edge between {} and {}".format(bin_u, bin_v))
+
     def add_edge(self, u, v, weight=None):
         """
         Adds and edge both in the reduced PathGraph (pg_base), in the
@@ -1784,43 +1831,17 @@ class Scaffolds(object):
 
         # check that the direction attribute has been set to the nodes
         >>> S.scaffold.node['c-0']
-        {'direction': '+', 'end': 20, 'name': 'c-0', 'start': 0, 'length': 20, 'path': [0, 1]}
-
+        {'direction': '+', 'end': 20, 'name': 'c-0', 'merged_path_id': 0, 'start': 0, 'length': 20, 'path': [0, 1]}
         >>> S.add_edge(2,1)
         >>> S.matrix_bins.path
         {'c-0, c-2, c-1': [0, 1, 5, 4, 2, 3]}
 
         >>> S.scaffold.node['c-1']
-        {'direction': '+', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [2, 3]}
-
+        {'direction': '+', 'end': 30, 'name': 'c-1', 'merged_path_id': 1, 'start': 10, 'length': 20, 'path': [2, 3]}
         >>> S.scaffold.node['c-2']
-        {'direction': '-', 'end': 20, 'name': 'c-2', 'start': 0, 'length': 20, 'path': [5, 4]}
+        {'direction': '-', 'end': 20, 'name': 'c-2', 'merged_path_id': 2, 'start': 0, 'length': 20, 'path': [5, 4]}
         """
 
-        def add_scaffold_edge(_bin_u, _bin_v, _weight, direction):
-            scaffold_u = self.bin_id_to_scaff[_bin_u]
-            scaffold_v = self.bin_id_to_scaff[_bin_v]
-            if direction[0] == '-':
-                for scaff_name in self.scaffold[scaffold_u]:
-                    if self.scaffold.node[scaff_name]['direction'] == "+":
-                        self.scaffold.node[scaff_name]['direction'] = "-"
-                    elif self.scaffold.node[scaff_name]['direction'] == "-":
-                        self.scaffold.node[scaff_name]['direction'] = "-"
-                    else: # when direction has not been set:
-                        self.scaffold.node[scaff_name]['direction'] = "-"
-                    self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
-
-            if direction[1] == '-':
-                for scaff_name in self.scaffold[scaffold_v]:
-                    if self.scaffold.node[scaff_name]['direction'] == "+":
-                        self.scaffold.node[scaff_name]['direction'] = "-"
-                    elif self.scaffold.node[scaff_name]['direction'] == "-":
-                        self.scaffold.node[scaff_name]['direction'] = "-"
-                    else: # when direction has not been set:
-                        self.scaffold.node[scaff_name]['direction'] = "-"
-                    self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
-
-            self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)
 
         # get the initial nodes that should be merged
         try:
@@ -1840,7 +1861,7 @@ class Scaffolds(object):
                 bin_v = best_path[1][0]
                 direction = self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
                 self.pg_base.add_edge(u, v, weight=weight)
-                add_scaffold_edge(bin_u, bin_v, weight, direction)
+                self.add_scaffold_edge(bin_u, bin_v, weight, direction)
                 path_added = True
             except PathGraphEdgeNotPossible:
                 log.debug("*WARN* Skipping add edge between {} and {} corresponding "
@@ -1854,7 +1875,7 @@ class Scaffolds(object):
                                      "".format(u, v, self.pg_base.get_path_name_of_node(u),
                                                self.pg_base.get_path_name_of_node(v)))
 
-    def delete_edge(self, u, v):
+    def delete_edge_from_matrix_bins(self, u, v):
         """
         deletes edge u,v. The edge is assumed to be
         from the matrix_bins PathGraph.
@@ -1867,7 +1888,7 @@ class Scaffolds(object):
         ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
-        >>> S.delete_edge(1,2)
+        >>> S.delete_edge_from_matrix_bins(1,2)
         Traceback (most recent call last):
         ...
         ScaffoldException: *ERROR* Edge can not be deleted inside an scaffold.
@@ -1877,20 +1898,19 @@ class Scaffolds(object):
         [[0, 1, 2, 3, 4], [5]]
         >>> list(S.scaffold.get_all_paths())
         [['c-3'], ['c-0', 'c-2']]
-        >>> S.delete_edge(2, 3)
+        >>> S.delete_edge_from_matrix_bins(2, 3)
         >>> list(S.get_all_paths())
         [[0, 1, 2], [3, 4], [5]]
         >>> list(S.scaffold.get_all_paths())
         [['c-3'], ['c-2'], ['c-0']]
         """
         # delete edge in self.scaffold
-        scaff_u = self.bin_id_to_scaff[u]
-        scaff_v = self.bin_id_to_scaff[v]
+        scaff_u = self.matrix_bins.node[u]['name']
+        scaff_v = self.matrix_bins.node[v]['name']
         if scaff_u == scaff_v:
             raise ScaffoldException("*ERROR* Edge can not be deleted inside an scaffold.\n"
                                     "Scaffold name: {}, edge: {}-{}".format(scaff_u, u, v))
         self.matrix_bins.delete_edge(u, v)
-
         self.scaffold.delete_edge(scaff_u, scaff_v)
 
         # self.pg_base.delete_edge(u, v)

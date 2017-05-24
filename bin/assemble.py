@@ -156,9 +156,9 @@ def main(args):
     make_sure_path_exists(args.outFolder)
     assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFolder)
 
-    super_contigs, paths = assembl.assemble_contigs()
+    super_contigs = assembl.assemble_contigs()
     save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)
-
+    exit()
     flat = []
     for contig in super_contigs:
         for part in contig:

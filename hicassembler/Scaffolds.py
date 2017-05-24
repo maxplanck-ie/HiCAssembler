@@ -138,7 +138,7 @@ class Scaffolds(object):
                     'length': length,
                     'start': scaff_start,
                     'end': scaff_end,
-                    'direction': None}
+                    'direction': "+"}
             self.scaffold.add_node(prev_label, **attr)
 
         contig_path = []
@@ -175,7 +175,6 @@ class Scaffolds(object):
 
         # before any merge is done, pg_base == pg_matrix.bins
         self.pg_base = copy.deepcopy(self.matrix_bins)
-
 
     def get_all_paths(self, pg_base=False):
         """Returns all paths in the graph.
@@ -243,15 +242,30 @@ class Scaffolds(object):
         [[3, 4], [5]]
         >>> S.removed_bins.node[5]
         {'start': 0, 'length': 10, 'end': 10, 'name': 'c-3', 'coverage': 1}
+
+        Test removal of bins and scaffold when two scaffolds are already merged
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 50, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.add_edge(4, 5)
+        >>> list(S.scaffold.get_all_paths())
+        [['c-2', 'c-3'], ['c-0']]
+        >>> S.remove_small_paths(30)
+        >>> list(S.scaffold.get_all_paths())
+        [['c-0']]
+        >>> list(S.removed_scaffolds.get_all_paths())
+        [['c-2', 'c-3']]
+
         """
 
         to_remove = []
         to_remove_paths = []
-        self.removed_bins = PathGraph()
-        self.removed_scaffolds = PathGraph()
         paths_total = 0
         length_total = 0
         removed_length_total = 0
+        # if min_length == 30:
+        #     import ipdb;ipdb.set_trace()
         paths_list = list(self.matrix_bins.get_all_paths())
         for path in paths_list:
             paths_total += 1
@@ -260,21 +274,7 @@ class Scaffolds(object):
 
             if length <= min_length:
                 log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
-                scaffold_id = self.bin_id_to_scaff[path[0]]
-                if path[0] in self.matrix_bins.path_id:
-                    path_name = self.matrix_bins.path_id[path[0]]
-                    self.removed_bins.add_path(path, name=path_name)
-                    self.removed_scaffolds.add_path(self.scaffold[scaffold_id])
-
-                for bin_node in path:
-                    self.removed_bins.add_node(bin_node, **self.matrix_bins.node[bin_node])
-                    self.removed_scaffolds.add_node(scaffold_id, **self.scaffold.node[scaffold_id])
-
-                # remove matrix_bins path
-                self.matrix_bins.delete_path_containing_node(path[0], delete_nodes=True)
-                # remove scaffolds path
-                self.scaffold.delete_path_containing_node(scaffold_id, delete_nodes=True)
-
+                self._remove_bin_path(path)
                 to_remove.extend(path)
                 to_remove_paths.append(path)
                 removed_length_total += length
@@ -287,75 +287,55 @@ class Scaffolds(object):
                                                               fraction=100 * float(removed_length_total) / length_total,
                                                               min_length=min_length))
 
-    # def remove_small_paths(self, min_length):
-    #     """
-    #     Removes from HiC matrix all bins that are smaller than certain size.
-    #
-    #     Parameters
-    #     ----------
-    #     min_length : minimum path length in bp
-    #
-    #     Returns
-    #     -------
-    #     None
-    #
-    #     Examples
-    #     --------
-    #
-    #     >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
-    #     ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
-    #     >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-    #     >>> S = Scaffolds(hic)
-    #     >>> list(S.get_all_paths())
-    #     [[0, 1, 2], [3, 4], [5]]
-    #     >>> S.remove_small_paths(20)
-    #
-    #     The paths that are smaller or equal to 20 are the one corresponding to c-2 and c-3.
-    #     thus, only the path of 'c-0' is kept
-    #     >>> S.matrix_bins.path.values()
-    #     [[0, 1, 2]]
-    #
-    #     >>> list(S.removed_bins.get_all_paths())
-    #     [[3, 4], [5]]
-    #     >>> S.removed_bins.node[5]
-    #     {'start': 0, 'length': 10, 'end': 10, 'name': 'c-3', 'coverage': 1}
-    #     """
-    #
-    #     to_remove = []
-    #     to_remove_paths = []
-    #     self.removed_bins = PathGraph()
-    #     self.removed_scaffolds = PathGraph()
-    #     paths_total = 0
-    #     length_total = 0
-    #     removed_length_total = 0
-    #     paths_list = list(self.matrix_bins.get_all_paths())
-    #     for path in paths_list:
-    #         paths_total += 1
-    #         length = (sum([self.matrix_bins.node[x]['length'] for x in path]))
-    #         length_total += length
-    #
-    #         if length <= min_length:
-    #             log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
-    #             if path[0] in self.matrix_bins.path_id:
-    #                 path_name = self.matrix_bins.path_id[path[0]]
-    #                 self.removed_bins.add_path(path, name=path_name)
-    #                 import pdb;pdb.set_trace()
-    #                 # self.removed_scaffolds
-    #             for bin_node in path:
-    #                 self.removed_bins.add_node(bin_node, **self.matrix_bins.node[bin_node])
-    #
-    #             self.matrix_bins.delete_path_containing_node(path[0], delete_nodes=True)
-    #             to_remove.extend(path)
-    #             to_remove_paths.append(path)
-    #             removed_length_total += length
-    #
-    #     if len(to_remove) and len(to_remove) < self.matrix.shape[0]:
-    #         log.debug("Removing {num_scaffolds} scaffolds/contigs, containing {num_bins} bins "
-    #                   "({fraction:.3f}% of total assembly length), because they "
-    #                   "are shorter than {min_length} ".format(num_scaffolds=len(to_remove_paths),
-    #                                                           num_bins=len(to_remove),
-    #                                                           fraction=100 * float(removed_length_total) / length_total,
-    #                                                           min_length=min_length))
+    def _remove_bin_path(self, path):
+        scaffold_id = self.bin_id_to_scaff[path[0]]
+        if path[0] in self.matrix_bins.path_id:
+            path_name = self.matrix_bins.path_id[path[0]]
+            self.removed_bins.add_path(path, name=path_name)
+            self.removed_scaffolds.add_path(self.scaffold[scaffold_id])
+
+        for bin_node in path:
+            self.removed_bins.add_node(bin_node, **self.matrix_bins.node[bin_node])
+        for scaffold_name in self.scaffold[scaffold_id]:
+            self.removed_scaffolds.add_node(scaffold_name, **self.scaffold.node[scaffold_name])
+
+        # remove matrix_bins path
+        self.matrix_bins.delete_path_containing_node(path[0], delete_nodes=True)
+        # remove scaffolds path
+        self.scaffold.delete_path_containing_node(scaffold_id, delete_nodes=True)
+
+    def restore_scaffold(self, scaffold_name):
+        """
+
+        Examples
+        --------
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.remove_small_paths(20)
+        >>> list(S.removed_scaffolds.get_all_paths())
+        [['c-3'], ['c-2']]
+        >>> S.restore_scaffold('c-2')
+        >>> list(S.removed_scaffolds.get_all_paths())
+        [['c-3']]
+        >>> list(S.scaffold.get_all_paths())
+        [['c-2'], ['c-0']]
+        >>> list(S.matrix_bins.get_all_paths())
+        [[0, 1, 2], [3, 4]]
+
+        >>> list(S.removed_bins.get_all_paths())
+        [[5]]
+        """
+        self.scaffold.add_node(scaffold_name, **self.removed_scaffolds.node[scaffold_name])
+        scaff_path = self.removed_scaffolds[scaffold_name]
+        for scaff_name in scaff_path:
+            path = self.removed_scaffolds.node[scaff_name]['path']
+            self.matrix_bins.add_path(path, name=scaffold_name)
+            for bin_node in path:
+                self.matrix_bins.add_node(bin_node, **self.removed_bins.node[bin_node])
+        self.removed_bins.delete_path_containing_node(path[0], delete_nodes=True)
+        self.removed_scaffolds.delete_path_containing_node(scaffold_name, delete_nodes=True)
 
     def remove_small_paths_bk(self, min_length):
         """
@@ -589,6 +569,12 @@ class Scaffolds(object):
 1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1'}, \
 2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2'}}
 
+        >>> S.matrix_bins.node[0]['merged_path_id']
+        0
+        >>> S.matrix_bins.node[5]['merged_path_id']
+        2
+        >>> S.scaffold.node['c-1']['merged_path_id']
+        1
         >>> S.matrix.todense()
         matrix([[12,  8,  8],
                 [ 8,  6,  8],
@@ -617,7 +603,6 @@ class Scaffolds(object):
         i = 0
         self.pg_base = PathGraph()
         for path in self.get_all_paths():
-#        for path in self.matrix_bins.path.values():
             # split_path has the form [[0, 1 ,2], [3, 4], [5, 6, 7]]
             split_path = Scaffolds.split_path(path, num_splits)
             # each sub path in the split_path list will become an index
@@ -652,6 +637,15 @@ class Scaffolds(object):
                 attr = {'length': length,
                         'name': name,
                         'initial_path': sub_path}
+                scaffold_name_set = set()
+                # update matrix_bin nodes to refer to the new merged path id
+                for bin_id in sub_path:
+                    self.matrix_bins.node[bin_id]['merged_path_id'] = i
+                    scaffold_name_set.add(self.matrix_bins.node[bin_id]['name'])
+                # update self.scaffold nodes to refer to the new merged path id
+                for scaff_name in scaffold_name_set:
+                    self.scaffold.node[scaff_name]['merged_path_id'] = i
+
                 self.pg_base.add_node(i, attr_dict=attr)
 
                 merged_path.append(i)
@@ -1742,10 +1736,43 @@ class Scaffolds(object):
 
         return nxG
 
+    def add_scaffold_edge(self,_bin_u, _bin_v, _weight, direction):
+        scaffold_u = self.bin_id_to_scaff[_bin_u]
+        scaffold_v = self.bin_id_to_scaff[_bin_v]
+        if direction[0] == '-':
+            for scaff_name in self.scaffold[scaffold_u]:
+                if self.scaffold.node[scaff_name]['direction'] == "+":
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                elif self.scaffold.node[scaff_name]['direction'] == "-":
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                else: # when direction has not been set:
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
+
+        if direction[1] == '-':
+            for scaff_name in self.scaffold[scaffold_v]:
+                if self.scaffold.node[scaff_name]['direction'] == "+":
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                elif self.scaffold.node[scaff_name]['direction'] == "-":
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                else: # when direction has not been set:
+                    self.scaffold.node[scaff_name]['direction'] = "-"
+                self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
+
+        self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)
+
+
+    def add_edge_matrix_bins(self, bin_u, bin_v, weight=None):
+        try:
+            direction = self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
+            self.add_scaffold_edge(bin_u, bin_v, weight, direction)
+        except PathGraphEdgeNotPossible:
+            log.debug("*WARN* Skipping add edge between {} and {}".format(bin_u, bin_v))
+
     def add_edge(self, u, v, weight=None):
         """
-        Adds and edge both in the reduced PathGraph (pg_base) and in the
-        initial (non reduced) PathGraph.
+        Adds and edge both in the reduced PathGraph (pg_base), in the
+        matrix_bins PathGraph and in the scaffolds PathGraph
         Parameters
         ----------
         u node index
@@ -1804,41 +1831,17 @@ class Scaffolds(object):
 
         # check that the direction attribute has been set to the nodes
         >>> S.scaffold.node['c-0']
-        {'direction': '+', 'end': 20, 'name': 'c-0', 'start': 0, 'length': 20, 'path': [0, 1]}
-
+        {'direction': '+', 'end': 20, 'name': 'c-0', 'merged_path_id': 0, 'start': 0, 'length': 20, 'path': [0, 1]}
         >>> S.add_edge(2,1)
         >>> S.matrix_bins.path
         {'c-0, c-2, c-1': [0, 1, 5, 4, 2, 3]}
 
         >>> S.scaffold.node['c-1']
-        {'direction': '+', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [2, 3]}
-
+        {'direction': '+', 'end': 30, 'name': 'c-1', 'merged_path_id': 1, 'start': 10, 'length': 20, 'path': [2, 3]}
         >>> S.scaffold.node['c-2']
-        {'direction': '-', 'end': 20, 'name': 'c-2', 'start': 0, 'length': 20, 'path': [5, 4]}
+        {'direction': '-', 'end': 20, 'name': 'c-2', 'merged_path_id': 2, 'start': 0, 'length': 20, 'path': [5, 4]}
         """
 
-        def add_scaffold_edge(_bin_u, _bin_v, _weight):
-            if _bin_u in [366, 1883] and _bin_v in [366, 1883]:
-                import pdb;pdb.set_trace()
-            scaffold_u = self.bin_id_to_scaff[_bin_u]
-            scaffold_v = self.bin_id_to_scaff[_bin_v]
-            self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)
-
-            if _bin_u == self.scaffold.node[scaffold_u]['path'][0]:
-                self.scaffold.node[scaffold_u]['path'] = self.scaffold.node[scaffold_u]['path'][::-1]
-
-            if self.scaffold.node[scaffold_u]['path'][0] > self.scaffold.node[scaffold_u]['path'][-1]:
-                self.scaffold.node[scaffold_u]['direction'] = "-"
-            else:
-                self.scaffold.node[scaffold_u]['direction'] = "+"
-
-            if _bin_v == self.scaffold.node[scaffold_v]['path'][-1]:
-                self.scaffold.node[scaffold_v]['path'] = self.scaffold.node[scaffold_v]['path'][::-1]
-
-            if self.scaffold.node[scaffold_v]['path'][0] > self.scaffold.node[scaffold_v]['path'][-1]:
-                self.scaffold.node[scaffold_v]['direction'] = "-"
-            else:
-                self.scaffold.node[scaffold_v]['direction'] = "+"
 
         # get the initial nodes that should be merged
         try:
@@ -1856,9 +1859,9 @@ class Scaffolds(object):
             try:
                 bin_u = best_path[0][-1]
                 bin_v = best_path[1][0]
-                self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
+                direction = self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
                 self.pg_base.add_edge(u, v, weight=weight)
-                add_scaffold_edge(bin_u, bin_v, weight)
+                self.add_scaffold_edge(bin_u, bin_v, weight, direction)
                 path_added = True
             except PathGraphEdgeNotPossible:
                 log.debug("*WARN* Skipping add edge between {} and {} corresponding "
@@ -1872,18 +1875,52 @@ class Scaffolds(object):
                                      "".format(u, v, self.pg_base.get_path_name_of_node(u),
                                                self.pg_base.get_path_name_of_node(v)))
 
-    def delete_edge(self, u, v):
-        if self.matrix_bins is not None:
-            raise "deleting edges not allowed"
-        else:
-            self.pg_base.delete_edge(u, v)
-            for node in [u, v]:
-                # get new name of path (assigned_automatically by PathGraph)
-                path_name = self.pg_base.get_path_name_of_node(node)
-                # get the ids that belong to that path
-                for node_id in self.pg_base.path[path_name]:
-                    name, start, end, extra = self.hic.cut_intervals[node_id]
-                    self.hic.cut_intervals[node_id] = (path_name, start, end, extra)
+    def delete_edge_from_matrix_bins(self, u, v):
+        """
+        deletes edge u,v. The edge is assumed to be
+        from the matrix_bins PathGraph.
+
+        THE EDGE IS NOT DELETED FROM pg_base
+
+        Examples
+        --------
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.delete_edge_from_matrix_bins(1,2)
+        Traceback (most recent call last):
+        ...
+        ScaffoldException: *ERROR* Edge can not be deleted inside an scaffold.
+        Scaffold name: c-0, edge: 1-2
+        >>> S.add_edge(2, 3)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2, 3, 4], [5]]
+        >>> list(S.scaffold.get_all_paths())
+        [['c-3'], ['c-0', 'c-2']]
+        >>> S.delete_edge_from_matrix_bins(2, 3)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2], [3, 4], [5]]
+        >>> list(S.scaffold.get_all_paths())
+        [['c-3'], ['c-2'], ['c-0']]
+        """
+        # delete edge in self.scaffold
+        scaff_u = self.matrix_bins.node[u]['name']
+        scaff_v = self.matrix_bins.node[v]['name']
+        if scaff_u == scaff_v:
+            raise ScaffoldException("*ERROR* Edge can not be deleted inside an scaffold.\n"
+                                    "Scaffold name: {}, edge: {}-{}".format(scaff_u, u, v))
+        self.matrix_bins.delete_edge(u, v)
+        self.scaffold.delete_edge(scaff_u, scaff_v)
+
+        # self.pg_base.delete_edge(u, v)
+        # for node in [u, v]:
+        #     # get new name of path (assigned_automatically by PathGraph)
+        #     path_name = self.pg_base.get_path_name_of_node(node)
+        #     # get the ids that belong to that path
+        #     for node_id in self.pg_base.path[path_name]:
+        #         name, start, end, extra = self.hic.cut_intervals[node_id]
+        #         self.hic.cut_intervals[node_id] = (path_name, start, end, extra)
 
     # def add_edge_bk(self, u, v, weight=None):
     #     """

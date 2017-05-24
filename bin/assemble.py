@@ -39,6 +39,15 @@ def parse_arguments(args=None):
                         help='fasta used for the hic',
                         required=True)
 
+    parser.add_argument('--min_scaffold_length',
+                        help='Minimum scaffold length for backbone to use. Using larger (>300kb) scaffolds '
+                             'avoids the formation of incorrect super-scaffolds. At a later stage the smaller'
+                             'scaffolds are put back into the backbone. If just few large scaffolds are available '
+                             'this parameter should be decreased.',
+                        required=False,
+                        type=int,
+                        default=300000)
+
     return parser.parse_args(args)
 
 
@@ -154,7 +163,8 @@ def make_sure_path_exists(path):
 def main(args):
     # load matrix
     make_sure_path_exists(args.outFolder)
-    assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFolder)
+    assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFolder,
+                                        min_scaffold_length=args.min_scaffold_length)
 
     super_contigs = assembl.assemble_contigs()
     save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)

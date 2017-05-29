@@ -1907,6 +1907,9 @@ class Scaffolds(object):
         # delete edge in self.scaffold
         scaff_u = self.matrix_bins.node[u]['name']
         scaff_v = self.matrix_bins.node[v]['name']
+        if u not in self.matrix_bins[v]:
+            raise ScaffoldException("*ERROR* Edge can not be deleted because "
+                                    "the bins ({}, {}) are not connected ".format(u, v))
         if scaff_u == scaff_v:
             raise ScaffoldException("*ERROR* Edge can not be deleted inside an scaffold.\n"
                                     "Scaffold name: {}, edge: {}-{}".format(scaff_u, u, v))
@@ -1922,79 +1925,6 @@ class Scaffolds(object):
         #         name, start, end, extra = self.hic.cut_intervals[node_id]
         #         self.hic.cut_intervals[node_id] = (path_name, start, end, extra)
 
-    # def add_edge_bk(self, u, v, weight=None):
-    #     """
-    #     Adds and edge both in the reduced PathGraph (pg_base) and in the
-    #     initial (non reduced) PathGraph.
-    #     Parameters
-    #     ----------
-    #     u node index
-    #     v node index
-    #     weight weight
-    #
-    #     Returns
-    #     -------
-    #
-    #     Examples
-    #     --------
-    #
-    #     >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
-    #     ... ('c-0', 30, 40, 1), ('c-1', 40, 50, 1), ('c-1', 50, 60, 1)]
-    #     >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-    #     >>> S = Scaffolds(hic)
-    #
-    #     >>> S.pg_base.path == {'c-0': [0, 1, 2, 3],
-    #     ...                    'c-1': [4, 5]}
-    #     True
-    #
-    #     >>> S.add_edge(3, 4, weight=10)
-    #     >>> S.pg_base.path == {'c-0, c-1': [0, 1, 2, 3, 4, 5]}
-    #     True
-    #     >>> S.matrix_bins is None
-    #     True
-    #
-    #     Test case with merged bins
-    #     >>> S = Scaffolds(hic)
-    #     >>> S.merge_to_size(target_length=20, reset_base_paths=False)
-    #
-    #     >>> S.pg_base.path == {'c-0': [0, 1], 'c-1': [2, 3]}
-    #     True
-    #     >>> S.matrix_bins.path == {'c-0': [0, 1, 2, 3], 'c-1': [4, 5]}
-    #     True
-    #
-    #     >>> S.add_edge_bk(1, 2, weight=10)
-    #     >>> S.pg_base.path == {'c-0, c-1': [0, 1, 2, 3]}
-    #     True
-    #
-    #     >>> S.matrix_bins.path == {'c-0, c-1': [0, 1, 2, 3, 4, 5]}
-    #     True
-    #     """
-    #     path_added = False
-    #     if self.matrix_bins is not None:
-    #         # get the initial nodes that should be merged
-    #         initial_path_u = self.pg_base.node[u]['initial_path']
-    #         initial_path_v = self.pg_base.node[v]['initial_path']
-    #
-    #         for index_u, index_v in [(0, 0), (0, -1), (-1, 0), (-1, -1)]:
-    #             # try all four combinations to join the `initial_path_u` and `initial_path_v`
-    #             # For example, for [c, d, e], [x, y, z], the attempt is to
-    #             # try to join (c, x), (c, z), (e, x), (e, z)
-    #             # Because c, can be part of the larger path [a, b, c, d, e], any edge
-    #             # containing 'e' can not be made and  the exception is raised.
-    #             try:
-    #                self.matrix_bins.add_edge(initial_path_u[index_u], initial_path_v[index_v], weight=weight)
-    #                self.pg_base.add_edge(u, v, weight=weight)
-    #                path_added = True
-    #                break
-    #             except PathGraphEdgeNotPossible:
-    #                 pass
-    #         if path_added is False:
-    #             raise ScaffoldException ("Can't add edge between {} ({}) and {} ({})".format(u, v,
-    #                                                                                             self.pg_base.get_path_name_of_node(u),
-    #                                                                                             self.pg_base.get_path_name_of_node(v)))
-    #
-    #     else:
-    #        self.pg_base.add_edge(u, v, weight=weight)
 
     @logit
     def get_nearest_neighbors(self, confidence_score):

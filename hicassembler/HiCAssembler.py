@@ -425,10 +425,7 @@ class HiCAssembler:
                             x_b = path_x[0]
                             nxG.node[scaff_x]['direction'] = '-'
 
-                    try:
-                        self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
-                    except:
-                        import ipdb;ipdb.set_trace()
+                    self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
                     self.scaffolds_graph.add_edge_matrix_bins(u, x_a)
                     self.scaffolds_graph.add_edge_matrix_bins(x_b, v)
                 log.info("Scaffold {} successfully integrated into the network".format(scaff_x))

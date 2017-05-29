@@ -295,7 +295,6 @@ class PathGraph(object):
             if name not in self.path:
                 path_id = name
             else:
-                import ipdb;ipdb.set_trace()
                 raise PathGraphException("Path name already exists {}".format(name))
         else:
             # get a new path_id
@@ -564,6 +563,16 @@ class PathGraph(object):
         >>> S.path == {'test/1': [0, 1], 'test/2': [2, 3]}
         True
         """
+        def get_name_from_paths(new_path):
+            new_name = []
+            prev_name = None
+            for node in new_path:
+                name = self.node[node]['name']
+                if prev_name is not None and prev_name != name:
+                    new_name.append(name)
+                prev_name = name
+            return ", ".join(new_name)
+
         # check that u and v are in the same path
         if self.path_id[u] != self.path_id[v]:
             message = "Can remove edge between {} and {} because they do not belong to the same path".format(u, v)
@@ -583,11 +592,19 @@ class PathGraph(object):
         new_path_u = self.path[path_id][:idx_v]
         new_path_v = self.path[path_id][idx_v:]
 
+
+        # this conditions happens when the nodes belong to two different paths
+        # and the new path names is the split of the two paths
+        if self.node[u]['name'] != self.node[v]['name']:
+            new_name_u = get_name_from_paths(new_path_u)
+            new_name_v = get_name_from_paths(new_path_v)
+        else:
+            new_name_u, new_name_v = PathGraph.new_split_path_names(path_id)
+
         # delete path
         self.delete_path_containing_node(u)
 
         # add the new two paths
-        new_name_u, new_name_v = PathGraph.new_split_path_names(path_id)
         self.add_path(new_path_u, name=new_name_u)
         self.add_path(new_path_v, name=new_name_v)
 
@@ -599,6 +616,7 @@ class PathGraph(object):
         n : path containing node id is deleted
         keep_adj : if set to True, then the self.adj values are not removed. It is practical to
                    keep the adj when a path simply updated because of add edge or remove edge
+        delete_nodes : bool if True, not only the nodes but the path are deleted
         Returns
         -------
 

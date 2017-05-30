@@ -137,7 +137,8 @@ class HiCAssembler:
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
-        self.scaffolds_graph.remove_small_paths(self.min_scaffold_length)
+        # self.scaffolds_graph.remove_small_paths(self.min_scaffold_length)
+        self.scaffolds_graph.remove_small_paths(self.min_scaffold_length / 3)
         assert mat_size == self.scaffolds_graph.hic.matrix.shape
 
         self.N50 = []
@@ -179,6 +180,8 @@ class HiCAssembler:
             self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=2e3,
                                                           hub_solving_method='remove weakest')
 
+            if iteration == 0:
+                self.scaffolds_graph.remove_small_paths(self.min_scaffold_length)
             self.plot_matrix(self.out_folder + "/after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
 
             # if iteration == 1:
@@ -317,139 +320,146 @@ class HiCAssembler:
         # iterate over all removed scaffolds
         removed_scaffolds = self.scaffolds_graph.removed_scaffolds.node.keys()
         for scaff_x in removed_scaffolds:
-            if nxG.degree(scaff_x) == 1:
-                scaff_b = nxG.edge[scaff_x].keys()[0]
-                # check that scaff_b is not a removed scaffold
-                if scaff_b in self.scaffolds_graph.removed_scaffolds.node:
-                    log.info("Scaffold is also removed {}".format(scaff_b))
+
+            # ignore scaffolds with degree > 1
+            if nxG.degree(scaff_x) != 1:
+                continue
+            scaff_b = nxG.edge[scaff_x].keys()[0]
+            # check that scaff_b is not a removed scaffold
+            if scaff_b in self.scaffolds_graph.removed_scaffolds.node:
+                log.info("Scaffold is also removed {}".format(scaff_b))
+                continue
+
+            # skip backbone scaffolds with over three partners (at least two
+            if nxG.degree(scaff_b) > 3:
+                continue
+
+            # Case when the node is the last or first in a path
+            if len(self.scaffolds_graph.scaffold.adj[scaff_b].keys()) == 1:
+                idx_b = self.scaffolds_graph.scaffold[scaff_b].index(scaff_b)
+                if idx_b == 0:
+                    scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b + 1]
+                else:
+                    scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b - 1]
+                    log.debug("FIXME: last node node implemented")
                     continue
+                path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
+                path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
+                path_c = self.scaffolds_graph.scaffold.node[scaff_c]['path']
 
-                # Case when the node is the last or first in a path
-                if len(self.scaffolds_graph.scaffold.adj[scaff_b].keys()) == 1:
-                    idx_b = self.scaffolds_graph.scaffold[scaff_b].index(scaff_b)
-                    if idx_b == 0:
-                        scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b + 1]
+                path_1 = [path_x, path_b, path_c]
+                path_2 = [path_x[::-1], path_b, path_c]
+                path_3 = [path_b, path_x, path_c]
+                path_4 = [path_b, path_x[::-1], path_c]
+
+                best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, path_1,
+                                                            list_of_permutations=[path_1, path_2, path_3, path_4])
+
+                # add the scaffold back to the scaffold_graph
+                self.scaffolds_graph.restore_scaffold(scaff_x)
+                # modify the network
+                if best_path == path_1 or best_path == path_2:
+                    nxG.add_edge(scaff_x, scaff_b)
+                    v = path_b[0]
+                    if best_path == path_1:
+                        x_a = path_x[0]
+                        x_b = path_x[-1]
+                        nxG.node[scaff_x]['direction'] = '+'
                     else:
-                        scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b - 1]
-                        log.debug("FIXME: last node node implemented")
-                        continue
-                    path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
-                    path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
-                    path_c = self.scaffolds_graph.scaffold.node[scaff_c]['path']
+                        x_a = path_x[-1]
+                        x_b = path_x[0]
+                        nxG.node[scaff_x]['direction'] = '-'
 
-                    path_1 = [path_x, path_b, path_c]
-                    path_2 = [path_x[::-1], path_b, path_c]
-                    path_3 = [path_b, path_x, path_c]
-                    path_4 = [path_b, path_x[::-1], path_c]
+                elif best_path == path_3 or best_path == path_4:
+                    nxG.remove_edge(scaff_b, scaff_c)
+                    nxG.add_edge(scaff_b, scaff_x)
+                    nxG.add_edge(scaff_x, scaff_c)
+                    u = path_b[-1]
+                    v = path_c[0]
 
-                    best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, path_1,
-                                                                list_of_permutations=[path_1, path_2, path_3, path_4])
-
-                    # add the scaffold back to the scaffold_graph
-                    self.scaffolds_graph.restore_scaffold(scaff_x)
-                    # modify the network
-                    if best_path == path_1 or best_path == path_2:
-                        nxG.add_edge(scaff_x, scaff_b)
-                        v = path_b[0]
-                        if best_path == path_1:
-                            x_a = path_x[0]
-                            x_b = path_x[-1]
-                            nxG.node[scaff_x]['direction'] = '+'
-                        else:
-                            x_a = path_x[-1]
-                            x_b = path_x[0]
-                            nxG.node[scaff_x]['direction'] = '-'
-
-                    elif best_path == path_3 or best_path == path_4:
-                        nxG.remove_edge(scaff_b, scaff_c)
-                        nxG.add_edge(scaff_b, scaff_x)
-                        nxG.add_edge(scaff_x, scaff_c)
-                        u = path_b[-1]
-                        v = path_c[0]
-
-                        if best_path == path_3:
-                            x_a = path_x[0]
-                            x_b = path_x[-1]
-                            nxG.node[scaff_x]['direction'] = '+'
-                        else:
-                            x_a = path_x[-1]
-                            x_b = path_x[0]
-                            nxG.node[scaff_x]['direction'] = '-'
-
-                        self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
-                        self.scaffolds_graph.add_edge_matrix_bins(u, x_a)
-                    self.scaffolds_graph.add_edge_matrix_bins(x_b, v)
-
-                # case when node is not on the borders of a path
-                elif len(self.scaffolds_graph.scaffold.adj[scaff_b].keys()) == 2:
-                    # find the best permutation to accommodate the node
-                    idx_b = self.scaffolds_graph.scaffold[scaff_b].index(scaff_b)
-                    path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
-                    path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
-                    scaff_a = self.scaffolds_graph.scaffold[scaff_b][idx_b - 1]
-                    try:
-                        scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b + 1]
-                    except:
-                        import ipdb;ipdb.set_trace()
-
-                    if scaff_a in self.scaffolds_graph.removed_scaffolds.node:
-                        log.info("Scaffold is also removed {}".format(scaff_a))
-                        continue
-                    if scaff_c in self.scaffolds_graph.removed_scaffolds.node:
-                        log.info("Scaffold is also removed {}".format(scaff_c))
-                        continue
-                    path_a = self.scaffolds_graph.scaffold.node[scaff_a]['path']
-                    path_c = self.scaffolds_graph.scaffold.node[scaff_c]['path']
-
-                    # in the image above: for X to be inserted next to B, either A-B or B-C needs to be
-                    # broken. Thus, only two options are available:
-                    # A-X-B-C or A-B-X-C
-                    # Thus we test the bandwidth for this two options having X in the two posible orientations
-                    # for a total of 4 cases.
-                    path_1 = [path_a, path_x, path_b, path_c]
-                    path_2 = [path_a, path_x[::-1], path_b, path_c]
-                    path_3 = [path_a, path_b, path_x, path_c]
-                    path_4 = [path_a, path_b, path_x[::-1], path_c]
-                    best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, path_1,
-                                                                list_of_permutations=[path_1, path_2, path_3, path_4])
-
-                    # add the scaffold back to the scaffold_graph
-                    self.scaffolds_graph.restore_scaffold(scaff_x)
-                    # modify the network
-                    if best_path == path_1 or best_path == path_2:
-                        nxG.remove_edge(scaff_a, scaff_b)
-                        nxG.add_edge(scaff_a, scaff_x)
-                        nxG.add_edge(scaff_x, scaff_b)
-                        u = path_a[-1]
-                        v = path_b[0]
-                        if best_path == path_1:
-                            x_a = path_x[0]
-                            x_b = path_x[-1]
-                            nxG.node[scaff_x]['direction'] = '+'
-                        else:
-                            x_a = path_x[-1]
-                            x_b = path_x[0]
-                            nxG.node[scaff_x]['direction'] = '-'
-                    elif best_path == path_3 or best_path == path_4:
-                        nxG.remove_edge(scaff_b, scaff_c)
-                        nxG.add_edge(scaff_b, scaff_x)
-                        nxG.add_edge(scaff_x, scaff_c)
-                        u = path_b[-1]
-                        v = path_c[0]
-
-                        if best_path == path_3:
-                            x_a = path_x[0]
-                            x_b = path_x[-1]
-                            nxG.node[scaff_x]['direction'] = '+'
-                        else:
-                            x_a = path_x[-1]
-                            x_b = path_x[0]
-                            nxG.node[scaff_x]['direction'] = '-'
+                    if best_path == path_3:
+                        x_a = path_x[0]
+                        x_b = path_x[-1]
+                        nxG.node[scaff_x]['direction'] = '+'
+                    else:
+                        x_a = path_x[-1]
+                        x_b = path_x[0]
+                        nxG.node[scaff_x]['direction'] = '-'
 
                     self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
                     self.scaffolds_graph.add_edge_matrix_bins(u, x_a)
-                    self.scaffolds_graph.add_edge_matrix_bins(x_b, v)
-                log.info("Scaffold {} successfully integrated into the network".format(scaff_x))
+                self.scaffolds_graph.add_edge_matrix_bins(x_b, v)
+
+            # case when node is not on the borders of a path
+            elif len(self.scaffolds_graph.scaffold.adj[scaff_b].keys()) == 2:
+                # find the best permutation to accommodate the node
+                idx_b = self.scaffolds_graph.scaffold[scaff_b].index(scaff_b)
+                path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
+                path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
+                scaff_a = self.scaffolds_graph.scaffold[scaff_b][idx_b - 1]
+                try:
+                    scaff_c = self.scaffolds_graph.scaffold[scaff_b][idx_b + 1]
+                except:
+                    import ipdb;ipdb.set_trace()
+
+                if scaff_a in self.scaffolds_graph.removed_scaffolds.node:
+                    log.info("Scaffold is also removed {}".format(scaff_a))
+                    continue
+                if scaff_c in self.scaffolds_graph.removed_scaffolds.node:
+                    log.info("Scaffold is also removed {}".format(scaff_c))
+                    continue
+                path_a = self.scaffolds_graph.scaffold.node[scaff_a]['path']
+                path_c = self.scaffolds_graph.scaffold.node[scaff_c]['path']
+
+                # in the image above: for X to be inserted next to B, either A-B or B-C needs to be
+                # broken. Thus, only two options are available:
+                # A-X-B-C or A-B-X-C
+                # Thus we test the bandwidth for this two options having X in the two posible orientations
+                # for a total of 4 cases.
+                path_1 = [path_a, path_x, path_b, path_c]
+                path_2 = [path_a, path_x[::-1], path_b, path_c]
+                path_3 = [path_a, path_b, path_x, path_c]
+                path_4 = [path_a, path_b, path_x[::-1], path_c]
+                best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, path_1,
+                                                            list_of_permutations=[path_1, path_2, path_3, path_4])
+
+                # add the scaffold back to the scaffold_graph
+                self.scaffolds_graph.restore_scaffold(scaff_x)
+                # modify the network
+                if best_path == path_1 or best_path == path_2:
+                    nxG.remove_edge(scaff_a, scaff_b)
+                    nxG.add_edge(scaff_a, scaff_x)
+                    nxG.add_edge(scaff_x, scaff_b)
+                    u = path_a[-1]
+                    v = path_b[0]
+                    if best_path == path_1:
+                        x_a = path_x[0]
+                        x_b = path_x[-1]
+                        nxG.node[scaff_x]['direction'] = '+'
+                    else:
+                        x_a = path_x[-1]
+                        x_b = path_x[0]
+                        nxG.node[scaff_x]['direction'] = '-'
+                elif best_path == path_3 or best_path == path_4:
+                    nxG.remove_edge(scaff_b, scaff_c)
+                    nxG.add_edge(scaff_b, scaff_x)
+                    nxG.add_edge(scaff_x, scaff_c)
+                    u = path_b[-1]
+                    v = path_c[0]
+
+                    if best_path == path_3:
+                        x_a = path_x[0]
+                        x_b = path_x[-1]
+                        nxG.node[scaff_x]['direction'] = '+'
+                    else:
+                        x_a = path_x[-1]
+                        x_b = path_x[0]
+                        nxG.node[scaff_x]['direction'] = '-'
+
+                self.scaffolds_graph.delete_edge_from_matrix_bins(u, v)
+                self.scaffolds_graph.add_edge_matrix_bins(u, x_a)
+                self.scaffolds_graph.add_edge_matrix_bins(x_b, v)
+            log.info("Scaffold {} successfully integrated into the network".format(scaff_x))
 
     def split_misassemblies(self, hic_file_name):
         """

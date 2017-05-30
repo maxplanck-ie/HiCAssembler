@@ -505,7 +505,7 @@ class Scaffolds(object):
 
         return length[i]
 
-    def split_and_merge_contigs(self, num_splits=3, normalize_method=['mean', 'ice', 'none'][0], use_log=False):
+    def split_and_merge_contigs(self, num_splits=3, target_size=None,  normalize_method=['mean', 'ice', 'none'][0]):
         """
         Splits each contig/scaffold into `num_splits` parts and creates
         a new reduced matrix with the slitted paths. The merge data is kept
@@ -632,7 +632,17 @@ class Scaffolds(object):
         self.pg_base = PathGraph()
         for path in self.get_all_paths():
             # split_path has the form [[0, 1 ,2], [3, 4], [5, 6, 7]]
+            if target_size is not None:
+                # define the number of splits based on the target size
+                length = sum([self.matrix_bins.node[x]['length'] for x in path])
+                if target_size < length:
+                    num_splits = length / target_size
+                else:
+                    log.debug("path is too small ({:,}) to split for target size {:,}".format(length, target_size))
+                    num_splits = 1
             split_path = Scaffolds.split_path(path, num_splits)
+            if len(split_path) == 0:
+                import ipdb;ipdb.set_trace()
             # each sub path in the split_path list will become an index
             # in a new matrix after merging and correcting. To
             # keep track of the original path that give rise to the
@@ -688,8 +698,6 @@ class Scaffolds(object):
 
         reduce_paths = paths_flatten[:]
 
-        # if use_log:
-        #     self.matrix.data = np.log1p(self.matrix.data)
         reduced_matrix = reduce_matrix(self.hic.matrix, reduce_paths, diagonal=True)
 
         if normalize_method == 'mean':
@@ -1261,7 +1269,6 @@ class Scaffolds(object):
         return consolidated_dist_value
 
     @staticmethod
-    @logit
     def find_best_permutation(ma, paths, return_all_sorted_best_paths=False, list_of_permutations=None):
         """
         Computes de bandwidth(bw) for all permutations of rows (and, because

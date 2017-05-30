@@ -71,6 +71,7 @@ class Scaffolds(object):
         # initialize the list of contigs as a graph with no edges
         self.hic = hic_matrix
         self.matrix = None  # will contain the reduced matrix
+        self.total_length = None
 
         # three synchronized PathGraphs are used
         # 1. matrix_bins contains the bin id related to the hic matrix. This is the most lower level PathGraph
@@ -128,11 +129,11 @@ class Scaffolds(object):
         True
         """
 
-        def add_scaffold_node(name, path):
+        def add_scaffold_node(name, path, length):
             # prepare scaffold information
             scaff_start = self.hic.cut_intervals[contig_path[0]][1]
             scaff_end = self.hic.cut_intervals[contig_path[-1]][2]
-            length = scaff_end - scaff_start
+            #length = scaff_end - scaff_start
             attr = {'name': prev_label,
                     'path': contig_path[:],
                     'length': length,
@@ -143,32 +144,34 @@ class Scaffolds(object):
 
         contig_path = []
         prev_label = None
-        length_array = []
         self.matrix = self.hic.matrix.copy()
         self.matrix_bins = PathGraph()
         self.scaffold = PathGraph()
         self.bin_id_to_scaff = OrderedDict()
+        self.total_length = 0
+        scaff_length = 0
         for idx, interval in enumerate(self.hic.cut_intervals):
             label, start, end, coverage = interval
             length = end - start
-
+            scaff_length += length
             attr = {'name': label,
                     'start': start,
                     'end': end,
                     'coverage': coverage,
                     'length': length}
-            length_array.append(length)
 
             self.matrix_bins.add_node(idx, **attr)
             self.bin_id_to_scaff[idx] = label
+            self.total_length += length
             if prev_label is not None and prev_label != label:
                 self.matrix_bins.add_path(contig_path, name=prev_label)
-                add_scaffold_node(prev_label, contig_path)
+                add_scaffold_node(prev_label, contig_path, scaff_length)
                 contig_path = []
+                scaff_length = 0
             contig_path.append(idx)
             prev_label = label
         if prev_label is not None:
-            add_scaffold_node(prev_label, contig_path)
+            add_scaffold_node(prev_label, contig_path, scaff_length)
 
         if len(contig_path) > 1:
             self.matrix_bins.add_path(contig_path, name=label)
@@ -200,6 +203,33 @@ class Scaffolds(object):
                 # parhgraph[v] returns a path containing v
                 yield pathgraph[v]
             seen.update(pathgraph[v])
+
+    def get_assembly_length(self):
+        """
+        Computes the length of the assembly.
+
+        Returns
+        -------
+        tuple: (assembly length, number of paths)
+
+        Examples
+        --------
+
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.get_assembly_length()
+        (60, 3)
+        """
+        assembly_length = 0
+        paths_total = 0
+        for path in self.scaffold.get_all_paths():
+            paths_total += 1
+            length = sum([self.scaffold.node[x]['length'] for x in path])
+            assembly_length += length
+
+        return assembly_length, paths_total
 
     def remove_small_paths(self, min_length):
         """
@@ -262,7 +292,6 @@ class Scaffolds(object):
         to_remove = []
         to_remove_paths = []
         paths_total = 0
-        length_total = 0
         removed_length_total = 0
         # if min_length == 30:
         #     import ipdb;ipdb.set_trace()
@@ -270,7 +299,6 @@ class Scaffolds(object):
         for path in paths_list:
             paths_total += 1
             length = (sum([self.matrix_bins.node[x]['length'] for x in path]))
-            length_total += length
 
             if length <= min_length:
                 log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
@@ -284,7 +312,7 @@ class Scaffolds(object):
                       "({fraction:.3f}% of total assembly length), because they "
                       "are shorter than {min_length} ".format(num_scaffolds=len(to_remove_paths),
                                                               num_bins=len(to_remove),
-                                                              fraction=100 * float(removed_length_total) / length_total,
+                                                              fraction=100 * float(removed_length_total) / self.total_length,
                                                               min_length=min_length))
 
     def _remove_bin_path(self, path):

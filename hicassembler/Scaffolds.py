@@ -127,6 +127,14 @@ class Scaffolds(object):
 
         >>> S.scaffold.node['c-4']['path'] == [3, 4]
         True
+
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-1', 10, 20, 1),
+        ... ('c-1', 20, 30, 1), ('c-2', 0, 10, 1), ('c-2', 10, 20, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+
+        >>> S = Scaffolds(hic)
+        >>> S.scaffold.node['c-0']
+        {'direction': '+', 'end': 20, 'name': 'c-0', 'start': 0, 'length': 20, 'path': [0, 1]}
         """
 
         def add_scaffold_node(name, path, length):
@@ -153,6 +161,12 @@ class Scaffolds(object):
         for idx, interval in enumerate(self.hic.cut_intervals):
             label, start, end, coverage = interval
             length = end - start
+            if prev_label is not None and prev_label != label:
+                self.matrix_bins.add_path(contig_path, name=prev_label)
+                add_scaffold_node(prev_label, contig_path, scaff_length)
+                contig_path = []
+                scaff_length = 0
+
             scaff_length += length
             attr = {'name': label,
                     'start': start,
@@ -163,11 +177,6 @@ class Scaffolds(object):
             self.matrix_bins.add_node(idx, **attr)
             self.bin_id_to_scaff[idx] = label
             self.total_length += length
-            if prev_label is not None and prev_label != label:
-                self.matrix_bins.add_path(contig_path, name=prev_label)
-                add_scaffold_node(prev_label, contig_path, scaff_length)
-                contig_path = []
-                scaff_length = 0
             contig_path.append(idx)
             prev_label = label
         if prev_label is not None:
@@ -1694,12 +1703,12 @@ class Scaffolds(object):
 
         >>> G = S.make_nx_graph()
 
-        the links with nodes from the same path, should had as weight
+        the edges for adjacent nodes in the same path, should had as weight
         the max value of the matrix +1.
         For this example, the paths are [0, 1, 2] and [3, 4, 5]. Thus, the contacts
-        for (0,1) and (0,2) should have a weight of 5.
+        for (0,1) and (1,2) should have a weight of 5.
         >>> G.adj[0]
-        {1: {'weight': 5.0}, 2: {'weight': 5.0}, 3: {'weight': 2.0}, 4: {'weight': 2.0}, 5: {'weight': 2.0}}
+        {1: {'weight': 5.0}, 2: {'weight': 2.0}, 3: {'weight': 2.0}, 4: {'weight': 2.0}, 5: {'weight': 2.0}}
         >>> G.node[0]
         {'start': 0, 'length': 10, 'end': 10, 'name': 'c-0', 'coverage': 1}
 
@@ -1761,8 +1770,8 @@ class Scaffolds(object):
             if u == v:
                 continue
 
-            if u in path_graph_to_use[v]:
-                # u and v are in same path
+            if u in path_graph_to_use.adj[v]:
+                # u and v are neighbors
                 nxG.add_edge(u, v, weight=float(max_weight))
             else:
                 nxG.add_edge(u, v, weight=float(weight))

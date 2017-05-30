@@ -571,6 +571,10 @@ class PathGraph(object):
                 if prev_name is not None and prev_name != name:
                     new_name.append(name)
                 prev_name = name
+
+            if prev_name is not None:
+                new_name.append(name)
+
             return ", ".join(new_name)
 
         # check that u and v are in the same path

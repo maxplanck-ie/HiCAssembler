@@ -55,7 +55,7 @@ def timeit(fn):
 class HiCAssembler:
     def __init__(self, hic_file_name, fasta_file, out_folder,
                  min_mad=MIN_MAD, max_mad=MAX_MAD, split_misassemblies=True,
-                 min_scaffold_length=MIN_LENGTH):
+                 min_scaffold_length=MIN_LENGTH, use_log=False):
         """
         Prepares a hic matrix for assembly.
         It is expected that initial contigs or scaffolds contain bins
@@ -88,7 +88,7 @@ class HiCAssembler:
             self.hic = hic_file_name
         else:
             log.info("Loading Hi-C matrix ... ")
-            # check is a lower resolution matrix is available
+            # check if a lower resolution matrix is available
             merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"
             # check if the computation for the misassembly score was already done
             if os.path.isfile(merged_bins_matrix_file):
@@ -115,6 +115,9 @@ class HiCAssembler:
                     pass
 
                 self.hic.save(merged_bins_matrix_file)
+
+        if use_log:
+            self.hic.matrix.data = np.log1p(self.hic.matrix.data)
 
         self.min_mad = min_mad
         self.max_mad = max_mad
@@ -157,12 +160,19 @@ class HiCAssembler:
 
             # the first iteration is is more stringent
             if iteration < 2:
-                self.scaffolds_graph.split_and_merge_contigs(num_splits=2, normalize_method='ice', use_log=False)
+
+                self.scaffolds_graph.split_and_merge_contigs(num_splits=2, target_size=(150000 * (iteration + 1)), normalize_method='ice')
                 stats = self.scaffolds_graph.get_stats_per_split()
-                conf_score = np.percentile(self.scaffolds_graph.matrix.data, 30)
-#                conf_score = np.percentile(self.scaffolds_graph.matrix.data, 60 - (iteration)*20)
+                conf_score = stats[2]['median']
+                log.debug("Confidence score set to {}".format(conf_score))
+
+                # self.scaffolds_graph.split_and_merge_contigs(num_splits=2, normalize_method='ice')
+                # conf_score = np.percentile(self.scaffolds_graph.matrix.data, 30)
+
             else:
-                self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice', use_log=False)
+                # self.scaffolds_graph.split_and_merge_contigs(num_splits=1, target_size=int(1e6),
+                #                                              normalize_method='ice')
+                self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice')
                 conf_score = np.percentile(self.scaffolds_graph.matrix.data, 30)
 
             log.info("Confidence score set to: {}".format(conf_score))
@@ -174,8 +184,19 @@ class HiCAssembler:
             # if iteration == 1:
             #     self.scaffolds_graph.remove_small_paths(MIN_LENGTH*1.5)
 
+        before_assembly_length, before_num_paths = self.scaffolds_graph.get_assembly_length()
 
         self.put_back_small_scaffolds()
+
+        after_assembly_length, afeger_num_paths = self.scaffolds_graph.get_assembly_length()
+
+        diff = after_assembly_length - before_assembly_length
+        log.info('{:,} bp ({:.2%}) were added back to the assembly'.format(diff,
+                                                                           float(diff)/self.scaffolds_graph.total_length))
+
+        log.info('Total assembly length: {:,} bp ({:.2%})'.format(after_assembly_length,
+                                                                  float(after_assembly_length)/self.scaffolds_graph.total_length))
+
         self.plot_matrix(self.out_folder + "/after_put_scaff_back.pdf".format(iteration), title="After assembly", add_vlines=True)
 
         print self.N50

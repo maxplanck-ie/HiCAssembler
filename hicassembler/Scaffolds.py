@@ -641,8 +641,6 @@ class Scaffolds(object):
                     log.debug("path is too small ({:,}) to split for target size {:,}".format(length, target_size))
                     num_splits = 1
             split_path = Scaffolds.split_path(path, num_splits)
-            if len(split_path) == 0:
-                import ipdb;ipdb.set_trace()
             # each sub path in the split_path list will become an index
             # in a new matrix after merging and correcting. To
             # keep track of the original path that give rise to the

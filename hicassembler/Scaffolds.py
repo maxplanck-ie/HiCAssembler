@@ -1806,7 +1806,7 @@ class Scaffolds(object):
 
     def add_edge_matrix_bins(self, bin_u, bin_v, weight=None):
         try:
-            direction = self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
+            direction = self.matrix_bins.add_edge(bin_u, bin_v, return_direction=True, weight=weight)
             self.add_scaffold_edge(bin_u, bin_v, weight, direction)
         except PathGraphEdgeNotPossible:
             log.debug("*WARN* Skipping add edge between {} and {}".format(bin_u, bin_v))
@@ -1901,7 +1901,7 @@ class Scaffolds(object):
             try:
                 bin_u = best_path[0][-1]
                 bin_v = best_path[1][0]
-                direction = self.matrix_bins.add_edge(bin_u, bin_v, weight=weight)
+                direction = self.matrix_bins.add_edge(bin_u, bin_v, return_direction=True, weight=weight)
                 self.pg_base.add_edge(u, v, weight=weight)
                 self.add_scaffold_edge(bin_u, bin_v, weight, direction)
                 path_added = True

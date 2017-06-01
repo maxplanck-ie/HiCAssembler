@@ -340,7 +340,7 @@ class PathGraph(object):
             name = node
         return name
 
-    def add_edge(self, u, v, name=None, attr_dict=None, **attr):
+    def add_edge(self, u, v, name=None, return_direction=False, attr_dict=None, **attr):
         """
         Given a node u and a node v, this function appends and edge between u and v.
         Importantly, the function checks that this operation is possible. If u is
@@ -463,7 +463,9 @@ class PathGraph(object):
         datadict.update(attr_dict)
         self.adj[u][v] = datadict
         self.adj[v][u] = datadict
-        return direction_u, direction_v
+
+        if return_direction:
+            return direction_u, direction_v
 
     def delete_node_from_path(self, n):
         """
@@ -596,10 +598,9 @@ class PathGraph(object):
         new_path_u = self.path[path_id][:idx_v]
         new_path_v = self.path[path_id][idx_v:]
 
-
-        # this conditions happens when the nodes belong to two different paths
+        # this conditions happen when the nodes belong to two different paths
         # and the new path names is the split of the two paths
-        if self.node[u]['name'] != self.node[v]['name']:
+        if 'name' in self.node[u] and 'name' in self.node[v] and self.node[u]['name'] != self.node[v]['name']:
             new_name_u = get_name_from_paths(new_path_u)
             new_name_v = get_name_from_paths(new_path_v)
         else:

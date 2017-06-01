@@ -254,6 +254,8 @@ class HiCAssembler:
                 elif isinstance(value, np.string_):
                     nn[attr] = str(value)
 
+            if node_id in self.scaffolds_graph.scaffold.node:
+                nn['is_backbone'] = 1
             nxG.add_node(node_id, **nn)
 
         matrix = orig_scaff.matrix.tocoo()
@@ -272,7 +274,7 @@ class HiCAssembler:
 
         return nxG
 
-    def put_back_small_scaffolds(self):
+    def put_back_small_scaffolds_bk(self):
         """
         Identifies scaffolds that where removed from the Hi-C assembly and
         tries to find their correct location.
@@ -315,6 +317,123 @@ class HiCAssembler:
         #          X
 
         scaff_degree_mst = dict(nxG.degree(nxG.node.keys()))
+
+        # iterate over all removed scaffolds
+        removed_paths = self.scaffolds_graph.removed_scaffolds.node.keys()
+        removed_paths = self.scaffolds_graph.removed_scaffolds.get_all_paths()
+        log.debug("Total number of removed scaffolds: {}".format(len(removed_paths)))
+        for scaff_x in removed_paths:
+
+            # ignore scaffolds with degree > 1
+            if nxG.degree(scaff_x) != 1:
+                log.info("Scaffold {} skipped because degree > 1".format(scaff_x))
+                continue
+
+            scaff_b = nxG.edge[scaff_x].keys()[0]
+            # check that scaff_b is not a removed scaffold
+            if scaff_b in self.scaffolds_graph.removed_scaffolds.node:
+                log.info("Scaffold is also removed {}".format(scaff_b))
+                continue
+
+            # skip backbone scaffolds with over three partners (at least two backbone neighbors) and
+            # one removed scaffold
+            if nxG.degree(scaff_b) > 3:
+                log.info("Backbone scaffold {} (connected to {}) has more than three edges".format(scaff_b, scaff_x))
+                continue
+
+            # skip if at least two neighbors are removed scaffolds
+            if nxG.degree(scaff_b) == 3 and len(set(nxG.adj[scaff_b].keys()).intersection(removed_paths)) == 2:
+                log.debug("Skipping node {} because more than one removed node is connected to the same"
+                          "backbone scaffold {}".format(scaff_x, scaff_b))
+                continue
+
+            path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
+            path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
+
+            # the possible combinations are
+            best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, [path_b, path_x])
+            if best_path[0][-1] in path_b:
+                node_b = best_path[0][-1]
+                node_x_a = best_path[1][0]
+                node_x_b = best_path[1][-1]
+            else:
+                node_x_a = best_path[0][-1]
+                node_x_b = best_path[0][0]
+                node_b = best_path[1][0]
+
+            # identify the neighbor in adjacent scaffold
+            node_a = None
+            for adj in self.scaffolds_graph.matrix_bins.adj[node_b].keys():
+                if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[node_b]['name']:
+                    node_a = adj
+                    break
+
+            try:
+                self.scaffolds_graph.restore_scaffold(scaff_x)
+            except:
+                import ipdb;ipdb.set_trace()
+            if node_a is not None:
+                self.scaffolds_graph.delete_edge_from_matrix_bins(node_b, node_a)
+                self.scaffolds_graph.add_edge_matrix_bins(node_x_b, node_a)
+
+            self.scaffolds_graph.add_edge_matrix_bins(node_b, node_x_a)
+            log.info("Scaffold {} successfully integrated into the network".format(scaff_x))
+
+        return
+
+    def put_back_small_scaffolds(self):
+        """
+        Identifies scaffolds that where removed from the Hi-C assembly and
+        tries to find their correct location.
+        Returns
+        -------
+
+
+        Examples
+        --------
+        >>> from hicassembler.Scaffolds import get_test_matrix as get_test_matrix
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 30, 2), ('c-1', 0, 10, 1),
+        ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 30, 1)]
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=20)
+        >>> H.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='none')
+        >>> H.scaffolds_graph.add_edge(0, 1)
+        >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
+        [[0, 1, 5, 4]]
+
+        >>> H.put_back_small_scaffolds()
+        >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
+        [[0, 1, 2, 3, 5, 4]]
+       """
+
+        orig_scaff = Scaffolds(self.hic)
+        orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method='ice')
+
+        # reset pb_base
+        self.scaffolds_graph.pg_base = copy.deepcopy(self.scaffolds_graph.matrix_bins)
+        nxG = self.make_scaffold_network(orig_scaff)
+        nxG = nx.maximum_spanning_tree(nxG, weight='weight')
+        nx.write_graphml(nxG, self.out_folder + "/mst_for_small_Scaff_integration.graphml".format())
+
+        # 1. Identify branches
+
+        # delete backbone nodes that are not adjacent to a removed scaffold
+        for node_id, attr in nxG.node.iteritems():
+            if 'is_backbone' in attr and \
+             set(nxG.adj[node_id].keys()).intersection(self.scaffolds_graph.removed_scaffolds.node.keys()) == 0:
+                nxG.remove_node(node_id)
+
+        import ipdb; ipdb.set_trace()
+        # nodes with degree one are the easiest to put into the graph
+        #
+        #  A   B    C
+        #   o---o---o
+        #       \--o  <- easy to put back
+        #          X
+
+        scaff_degree_mst = dict(nxG.degree(nxG.node.keys()))
+
 
         # iterate over all removed scaffolds
         removed_paths = self.scaffolds_graph.removed_scaffolds.node.keys()

@@ -48,6 +48,20 @@ def parse_arguments(args=None):
                         type=int,
                         default=300000)
 
+    parser.add_argument('--bin_size',
+                        help='bin size (in bp) to use. Usually a high resolution matrix is provided to the assembler. '
+                             'A lower resolution matrix can be used if the depth of sequencing is low.',
+                        required=False,
+                        type=int,
+                        default=25000)
+
+    parser.add_argument('--num_processors',
+                        help='Number of processors to use.',
+                        required=False,
+                        type=int,
+                        default=1)
+
+
     return parser.parse_args(args)
 
 
@@ -164,7 +178,9 @@ def main(args):
     # load matrix
     make_sure_path_exists(args.outFolder)
     assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFolder,
-                                        min_scaffold_length=args.min_scaffold_length)
+                                        min_scaffold_length=args.min_scaffold_length,
+                                        matrix_bin_size=args.bin_size,
+                                        num_processors=args.num_processors)
 
     super_contigs = assembl.assemble_contigs()
     save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)

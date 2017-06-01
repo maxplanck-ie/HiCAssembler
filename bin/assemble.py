@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 #-*- coding: utf-8 -*-
 import argparse
+import os
+import errno
 
 import numpy as np
 
 import hicassembler.parserCommon as parserCommon
 
-import hicexplorer.HiCMatrix as HiCMatrix
 import hicassembler.HiCAssembler as HiCAssembler
 import logging as log
 
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from matplotlib import cm
 debug = 0
 
 TEMP_FOLDER = '/tmp/'
 
 log.basicConfig(level=log.DEBUG)
+
 
 def parse_arguments(args=None):
     parent_parser = parserCommon.getParentArgParse()
@@ -31,11 +31,38 @@ def parse_arguments(args=None):
         'the matrix row labels should include '
         'the position of the contig.')
 
-    parser.add_argument('--outFile', '-o',
-                        help='prefix for output files.',
+    parser.add_argument('--outFolder', '-o',
+                        help='folder were to save output files.',
                         required=True)
 
-    return(parser.parse_args(args))
+    parser.add_argument('--fasta', '-f',
+                        help='fasta used for the hic',
+                        required=True)
+
+    parser.add_argument('--min_scaffold_length',
+                        help='Minimum scaffold length for backbone to use. Using larger (>300kb) scaffolds '
+                             'avoids the formation of incorrect super-scaffolds. At a later stage the smaller'
+                             'scaffolds are put back into the backbone. If just few large scaffolds are available '
+                             'this parameter should be decreased.',
+                        required=False,
+                        type=int,
+                        default=300000)
+
+    parser.add_argument('--bin_size',
+                        help='bin size (in bp) to use. Usually a high resolution matrix is provided to the assembler. '
+                             'A lower resolution matrix can be used if the depth of sequencing is low.',
+                        required=False,
+                        type=int,
+                        default=25000)
+
+    parser.add_argument('--num_processors',
+                        help='Number of processors to use.',
+                        required=False,
+                        type=int,
+                        default=1)
+
+
+    return parser.parse_args(args)
 
 
 def dot_plot_super_contigs(super_contigs):
@@ -118,15 +145,16 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
     from Bio.Seq import Seq
     record_dict = SeqIO.to_dict(SeqIO.parse(input_fasta, "fasta"))
     new_rec_list = []
-
-    for super_c in super_scaffolds:
+    nnn_seq = Seq('N'*200)
+    for idx, super_c in enumerate(super_scaffolds):
         sequence = Seq("")
-        id = []
-        for contig_id, strand in super_c:
+        id = ["Super-scaffold_{} ".format(idx + 1)]
+        for contig_id, start, end, strand in super_c:
             if strand == '-':
-                sequence += record_dict[contig_id].reverse_complement()
+                sequence += record_dict[contig_id][start:end].reverse_complement()
             else:
-                sequence += record_dict[contig_id]
+                sequence += record_dict[contig_id][start:end]
+            sequence += nnn_seq
             id.append("{}_{}".format(contig_id, strand))
 
         id = "_".join(id)
@@ -138,16 +166,25 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
         SeqIO.write(new_rec_list, handle, "fasta")
 
 
+def make_sure_path_exists(path):
+    try:
+        os.makedirs(path)
+    except OSError as exception:
+        if exception.errno != errno.EEXIST:
+            raise
+
+
 def main(args):
     # load matrix
-    basename = args.outFile
-    ma = HiCMatrix.hiCMatrix(args.matrix)
-    names_list = []
-    assembl = HiCAssembler.HiCAssembler(ma)
-    #import ipdb;ipdb.set_trace()
-    super_contigs, paths = assembl.assemble_contigs()
-    save_fasta("dvir1.3.fa", "super_scaffolds.fa", super_contigs)
+    make_sure_path_exists(args.outFolder)
+    assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFolder,
+                                        min_scaffold_length=args.min_scaffold_length,
+                                        matrix_bin_size=args.bin_size,
+                                        num_processors=args.num_processors)
 
+    super_contigs = assembl.assemble_contigs()
+    save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)
+    exit()
     flat = []
     for contig in super_contigs:
         for part in contig:

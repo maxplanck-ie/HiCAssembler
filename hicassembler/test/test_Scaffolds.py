@@ -56,7 +56,7 @@ class TestClass:
 
         assert S.pg_base.node[0] == {'length': 20, 'initial_path': [0, 1], 'name': 'c-0/0'}
         assert S.pg_base.node[2] == {'length': 10, 'initial_path': [4], 'name': 'c-1/0'}
-        assert S.pg_initial.node[0] == {'start': 0, 'length': 10, 'end': 10, 'name': 'c-0', 'coverage': 1}
+        assert S.matrix_bins.node[0] == {'start': 0, 'length': 10, 'end': 10, 'name': 'c-0', 'coverage': 1}
 
     def test_remove_small_paths_after_merge(self):
         cut_intervals = [('c-3', 0, 10, 1), ('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
@@ -71,8 +71,8 @@ class TestClass:
         assert S.pg_base.path == {'c-0': [0, 1], 'c-2': [2, 3]}
         assert S.pg_base.node[0] == {'initial_path': [1], 'length': 10, 'name': 'c-0/0'}
         # paths in the initial graph should not be changed
-        print S.pg_initial.path
-        assert S.pg_initial.path == {'c-3': [0], 'c-0': [1, 2, 3], 'c-2': [4, 5]}
+        print S.matrix_bins.path
+        assert S.matrix_bins.path == {'c-3': [0], 'c-0': [1, 2, 3], 'c-2': [4, 5]}
 
     def test_reset_pg_initial(self):
 

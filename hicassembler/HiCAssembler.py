@@ -55,7 +55,7 @@ def timeit(fn):
 class HiCAssembler:
     def __init__(self, hic_file_name, fasta_file, out_folder,
                  min_mad=MIN_MAD, max_mad=MAX_MAD, split_misassemblies=True,
-                 min_scaffold_length=MIN_LENGTH, matrix_bin_size=25000, use_log=True,
+                 min_scaffold_length=MIN_LENGTH, matrix_bin_size=25000, use_log=False,
                  num_processors=5):
         """
         Prepares a hic matrix for assembly.
@@ -222,7 +222,8 @@ class HiCAssembler:
         ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 30, 1)]
 
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=20)
+        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False,
+        ... min_scaffold_length=20, use_log=False)
         >>> H.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='none')
         >>> H.scaffolds_graph.add_edge(0, 1)
         >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
@@ -499,7 +500,7 @@ class HiCAssembler:
                 break
         return G
 
-    def put_back_small_scaffolds(self):
+    def put_back_small_scaffolds(self, normalize_method='ice'):
         """
         Identifies scaffolds that where removed from the Hi-C assembly and
         tries to find their correct location.
@@ -514,7 +515,7 @@ class HiCAssembler:
         ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 30, 1)]
 
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=20)
+        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=20, use_log=False)
         >>> H.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='none')
         >>> H.scaffolds_graph.add_edge(0, 1)
         >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
@@ -523,14 +524,72 @@ class HiCAssembler:
         >>> H.put_back_small_scaffolds()
         >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
         [[0, 1, 2, 3, 5, 4]]
+
+        # larger test
+        >>> from hicassembler.Scaffolds import get_test_matrix as get_test_matrix
+
+        >>> cut_intervals = [('c-0', 0, 20, 1), ('c-0', 20, 40, 2),
+        ... ('c-1', 10, 20, 1), ('c-1', 20, 30, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 10, 20, 1),
+        ... ('c-3', 0, 10, 1), ('c-3', 10, 20, 1),
+        ... ('c-4', 0, 20, 1), ('c-4', 20, 40, 1)]
+        >>> from scipy.sparse import csr_matrix
+        >>> A = csr_matrix(np.array(
+        ... [[50,  19,  9,  8,  5,  3,  2,  1,  0,  0],
+        ...  [ 0, 50,  19,  9,  8,  5,  3,  2,  1,  0],
+        ...  [ 0,  0, 50,  19,  9,  8,  5,  3,  2,  1],
+        ...  [ 0,  0,  0, 50,  19,  9,  8,  5,  3,  2],
+        ...  [ 0,  0,  0,  0, 50,  19,  9,  8,  5,  3],
+        ...  [ 0,  0,  0,  0,  0, 50,  19,  9,  8,  5],
+        ...  [ 0,  0,  0,  0,  0,  0, 50,  19,  9,  8],
+        ...  [ 0,  0,  0,  0,  0,  0,  0, 50,  19,  9],
+        ...  [ 0,  0,  0,  0,  0,  0,  0,  0, 50,  19],
+        ...  [ 0,  0,  0,  0,  0,  0,  0,  0,  0, 50]]))
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
+
+        # scramble matrix
+        # the scrambled order is [c-3 (inv), c-1(inv), c-0, c-4, c-2]
+        >>> scrambled_bins = [7,6, 3,2, 0,1, 8,9, 5,4]
+        >>> matrix = hic.matrix[scrambled_bins, :][:, scrambled_bins]
+
+        # the intervals are shuffled but not the direction
+        >>> scrambled_intervals = [6,7, 2,3, 0,1, 8,9, 5,4]
+        >>> cut_intervals = [cut_intervals[x] for x in scrambled_intervals]
+        >>> hic.setMatrix(matrix, cut_intervals)
+        >>> hic.matrix.todense()
+        matrix([[100,  19,   5,   3,   1,   2,  19,   9,   9,   8],
+                [ 19, 100,   8,   5,   2,   3,   9,   8,  19,   9],
+                [  5,   8, 100,  19,   8,   9,   3,   2,   9,  19],
+                [  3,   5,  19, 100,   9,  19,   2,   1,   8,   9],
+                [  1,   2,   8,   9, 100,  19,   0,   0,   3,   5],
+                [  2,   3,   9,  19,  19, 100,   1,   0,   5,   8],
+                [ 19,   9,   3,   2,   0,   1, 100,  19,   8,   5],
+                [  9,   8,   2,   1,   0,   0,  19, 100,   5,   3],
+                [  9,  19,   9,   8,   3,   5,   8,   5, 100,  19],
+                [  8,   9,  19,   9,   5,   8,   5,   3,  19, 100]])
+
+        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=20, use_log=False)
+        >>> H.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='none')
+
+        # the shorter scaffolds are removed: c-1, c-2, and c-4.
+        # add edge between remaining scaffolds
+        >>> H.scaffolds_graph.add_edge(0, 1)
+        >>> list(H.scaffolds_graph.scaffold.get_all_paths())
+        [['c-0', 'c-4']]
+        >>> H.put_back_small_scaffolds(normalize_method='none')
+        >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
+
+
        """
 
         orig_scaff = Scaffolds(self.hic)
-        orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method='ice')
+        orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method=normalize_method)
 
         # reset pb_base
         self.scaffolds_graph.pg_base = copy.deepcopy(self.scaffolds_graph.matrix_bins)
         nxG = self.make_scaffold_network(orig_scaff)
+
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
         nx.write_graphml(nxG, self.out_folder + "/mst_for_small_Scaff_integration.graphml".format())
 
@@ -539,6 +598,7 @@ class HiCAssembler:
         # delete backbone nodes that are not adjacent to a removed scaffold
         log.debug("Removed scaffolds {}".format(self.scaffolds_graph.removed_scaffolds.node.keys()))
         log.debug("Backbone scaffolds {}".format(self.scaffolds_graph.scaffold.node.keys()))
+
         for node_id in self.scaffolds_graph.scaffold.node.keys():
             log.debug("Testing {}".format(node_id))
             # check that the backbone node is not adjacent to a removed node.
@@ -546,24 +606,63 @@ class HiCAssembler:
                 nxG.remove_node(node_id)
                 log.debug("Backbone node {} removed".format(node_id))
 
-        for graph in nx.connected_component_subgraphs(nxG):
-            graph = HiCAssembler._remove_weakest(nxG)
-            # find the path containing the backbone node
-            for node_id, attr in graph.node.iteritems():
-                if 'is_backbone' not in attr:
-                    continue
-                # add edges
-                seen = set()
-                while True:
-                    adj = graph.adj[node_id].keys()
-                    for node in adj:
-                        if node in seen:
-                            continue
+        for branch in list(nx.connected_component_subgraphs(nxG)):
+            branch = HiCAssembler._remove_weakest(branch)
 
-                        self.scaffolds_graph.restore_scaffold(node)
-                        self.scaffolds_graph.add_edge()
+            # find the backbone node
+            for node_id, attr in branch.node.iteritems():
+                if 'is_backbone' in attr:
+                    scaff_b = node_id
+                    break
+            # a. find the best orientation of scaff_b and the next branch scaffold
+            #    then break the scaffold path on the right
 
-        import ipdb;ipdb.set_trace()
+            assert len(branch.adj[scaff_b].keys()) == 1
+            # identify adjacent node to scaff_b in `branch`
+            scaff_x = branch.adj[scaff_b].keys()[0]
+            path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
+            path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
+
+            best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, [path_b, path_x])
+            if best_path[0][-1] in path_b:
+                node_b = best_path[0][-1]
+                node_x_a = best_path[1][0]
+                node_x_b = best_path[1][-1]
+            else:
+                node_x_a = best_path[0][-1]
+                node_x_b = best_path[0][0]
+                node_b = best_path[1][0]
+
+            # identify the neighbor in adjacent scaffold
+            node_a = None
+            for adj in self.scaffolds_graph.matrix_bins.adj[node_b].keys():
+                if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[node_b]['name']:
+                    node_a = adj
+                    break
+
+            self.scaffolds_graph.restore_scaffold(scaff_x)
+            if node_a is not None:
+                self.scaffolds_graph.delete_edge_from_matrix_bins(node_b, node_a)
+
+            self.scaffolds_graph.add_edge_matrix_bins(node_b, node_x_a)
+
+            branch.remove_node(scaff_b)
+            # b. add the edges of each other scaffold in the branch
+            log.info("Scaffold {} successfully integrated into the network".format(scaff_x))
+            import ipdb;ipdb.set_trace()
+            while len(branch.node.keys()) > 1:
+                scaff_b = scaff_x
+                assert len(branch.adj[scaff_b].keys()) == 1
+                scaff_x = branch.adj[scaff_b].keys()[0]
+                path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
+                path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
+
+                best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, [path_b, path_x])
+
+            if node_a is not None:
+                self.scaffolds_graph.add_edge_matrix_bins(node_x_b, node_a)
+
+        # import ipdb;ipdb.set_trace()
         return
         # nodes with degree one are the easiest to put into the graph
         #
@@ -604,37 +703,6 @@ class HiCAssembler:
                           "backbone scaffold {}".format(scaff_x, scaff_b))
                 continue
 
-            path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
-            path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
-
-            # the possible combinations are
-            best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, [path_b, path_x])
-            if best_path[0][-1] in path_b:
-                node_b = best_path[0][-1]
-                node_x_a = best_path[1][0]
-                node_x_b = best_path[1][-1]
-            else:
-                node_x_a = best_path[0][-1]
-                node_x_b = best_path[0][0]
-                node_b = best_path[1][0]
-
-            # identify the neighbor in adjacent scaffold
-            node_a = None
-            for adj in self.scaffolds_graph.matrix_bins.adj[node_b].keys():
-                if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[node_b]['name']:
-                    node_a = adj
-                    break
-
-            try:
-                self.scaffolds_graph.restore_scaffold(scaff_x)
-            except:
-                import ipdb;ipdb.set_trace()
-            if node_a is not None:
-                self.scaffolds_graph.delete_edge_from_matrix_bins(node_b, node_a)
-                self.scaffolds_graph.add_edge_matrix_bins(node_x_b, node_a)
-
-            self.scaffolds_graph.add_edge_matrix_bins(node_b, node_x_a)
-            log.info("Scaffold {} successfully integrated into the network".format(scaff_x))
 
         return
 
@@ -841,9 +909,7 @@ class HiCAssembler:
                 path_list_test[idx].extend(bin_path)
                 end_bin += len(bin_path)
 
-            if path_list_test[idx] != self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]:
-                import pdb;pdb.set_trace()
-            #assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
+            assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
             scaff_boundaries["scaff_{}".format(idx)] = (start_bin, end_bin)
             start_bin = end_bin
 

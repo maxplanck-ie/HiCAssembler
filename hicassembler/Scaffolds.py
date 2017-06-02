@@ -1822,7 +1822,7 @@ class Scaffolds(object):
         except PathGraphEdgeNotPossible:
             log.debug("*WARN* Skipping add edge between {} and {}".format(bin_u, bin_v))
 
-    def add_edge_scaffold(self, scaff_a, scaff_v, weight=None):
+    # def add_edge_scaffold(self, scaff_a, scaff_v, weight=None):
 
     def add_edge(self, u, v, weight=None, ):
         """

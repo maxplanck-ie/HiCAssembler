@@ -302,8 +302,6 @@ class Scaffolds(object):
         to_remove_paths = []
         paths_total = 0
         removed_length_total = 0
-        # if min_length == 30:
-        #     import ipdb;ipdb.set_trace()
         paths_list = list(self.matrix_bins.get_all_paths())
         for path in paths_list:
             paths_total += 1
@@ -1803,15 +1801,30 @@ class Scaffolds(object):
 
         self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)
 
-
     def add_edge_matrix_bins(self, bin_u, bin_v, weight=None):
+        """
+        Adds an edge using the matrix_bins pathgraph. And edge to the
+        scaffolds pathgraph is also added.
+
+        Parameters
+        ----------
+        bin_u
+        bin_v
+        weight
+
+        Returns
+        -------
+
+        """
         try:
             direction = self.matrix_bins.add_edge(bin_u, bin_v, return_direction=True, weight=weight)
             self.add_scaffold_edge(bin_u, bin_v, weight, direction)
         except PathGraphEdgeNotPossible:
             log.debug("*WARN* Skipping add edge between {} and {}".format(bin_u, bin_v))
 
-    def add_edge(self, u, v, weight=None):
+    def add_edge_scaffold(self, scaff_a, scaff_v, weight=None):
+
+    def add_edge(self, u, v, weight=None, ):
         """
         Adds and edge both in the reduced PathGraph (pg_base), in the
         matrix_bins PathGraph and in the scaffolds PathGraph
@@ -1883,7 +1896,6 @@ class Scaffolds(object):
         >>> S.scaffold.node['c-2']
         {'direction': '-', 'end': 20, 'name': 'c-2', 'merged_path_id': 2, 'start': 0, 'length': 20, 'path': [5, 4]}
         """
-
 
         # get the initial nodes that should be merged
         try:

@@ -638,7 +638,6 @@ class Scaffolds(object):
         i = 0
         self.pg_base = PathGraph()
         for path in self.get_all_paths():
-            # split_path has the form [[0, 1 ,2], [3, 4], [5, 6, 7]]
             if target_size is not None:
                 # define the number of splits based on the target size
                 length = sum([self.matrix_bins.node[x]['length'] for x in path])
@@ -647,6 +646,7 @@ class Scaffolds(object):
                 else:
                     log.debug("path is too small ({:,}) to split for target size {:,}".format(length, target_size))
                     num_splits = 1
+            # split_path has the form [[0, 1 ,2], [3, 4], [5, 6, 7]]
             split_path = Scaffolds.split_path(path, num_splits)
             # each sub path in the split_path list will become an index
             # in a new matrix after merging and correcting. To

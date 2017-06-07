@@ -1871,8 +1871,6 @@ class Scaffolds(object):
         -------
 
         """
-        if set([bin_u, bin_v]) == set([837, 1208]):
-            import ipdb;ipdb.set_trace()
         try:
             direction = self.matrix_bins.add_edge(bin_u, bin_v, return_direction=True, weight=weight)
             self.add_scaffold_edge(bin_u, bin_v, weight, direction)

@@ -275,112 +275,6 @@ class HiCAssembler:
 
         return nxG
 
-    # def put_back_small_scaffolds_bk(self):
-    #     """
-    #     Identifies scaffolds that where removed from the Hi-C assembly and
-    #     tries to find their correct location.
-    #     Returns
-    #     -------
-    #
-    #
-    #     Examples
-    #     --------
-    #     >>> from hicassembler.Scaffolds import get_test_matrix as get_test_matrix
-    #     >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 30, 2), ('c-1', 0, 10, 1),
-    #     ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 30, 1)]
-    #
-    #     >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-    #     >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=20)
-    #     >>> H.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='none')
-    #     >>> H.scaffolds_graph.add_edge(0, 1)
-    #     >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
-    #     [[0, 1, 5, 4]]
-    #
-    #     >>> H.put_back_small_scaffolds()
-    #     >>> list(H.scaffolds_graph.matrix_bins.get_all_paths())
-    #     [[0, 1, 2, 3, 5, 4]]
-    #    """
-    #
-    #     orig_scaff = Scaffolds(self.hic)
-    #     orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method='ice')
-    #
-    #     # reset pb_base
-    #     self.scaffolds_graph.pg_base = copy.deepcopy(self.scaffolds_graph.matrix_bins)
-    #     nxG = self.make_scaffold_network(orig_scaff)
-    #     nxG = nx.maximum_spanning_tree(nxG, weight='weight')
-    #     nx.write_graphml(nxG, self.out_folder + "/mst_for_small_Scaff_integration.graphml".format())
-    #
-    #     # nodes with degree one are the easiest to put into the graph
-    #     #
-    #     #  A   B    C
-    #     #   o---o---o
-    #     #       \--o  <- easy to put back
-    #     #          X
-    #
-    #     scaff_degree_mst = dict(nxG.degree(nxG.node.keys()))
-    #
-    #     # iterate over all removed scaffolds
-    #     removed_paths = self.scaffolds_graph.removed_scaffolds.node.keys()
-    #     removed_paths = self.scaffolds_graph.removed_scaffolds.get_all_paths()
-    #     log.debug("Total number of removed scaffolds: {}".format(len(removed_paths)))
-    #     for scaff_x in removed_paths:
-    #
-    #         # ignore scaffolds with degree > 1
-    #         if nxG.degree(scaff_x) != 1:
-    #             log.info("Scaffold {} skipped because degree > 1".format(scaff_x))
-    #             continue
-    #
-    #         scaff_b = nxG.edge[scaff_x].keys()[0]
-    #         # check that scaff_b is not a removed scaffold
-    #         if scaff_b in self.scaffolds_graph.removed_scaffolds.node:
-    #             log.info("Scaffold is also removed {}".format(scaff_b))
-    #             continue
-    #
-    #         # skip backbone scaffolds with over three partners (at least two backbone neighbors) and
-    #         # one removed scaffold
-    #         if nxG.degree(scaff_b) > 3:
-    #             log.info("Backbone scaffold {} (connected to {}) has more than three edges".format(scaff_b, scaff_x))
-    #             continue
-    #
-    #         # skip if at least two neighbors are removed scaffolds
-    #         if nxG.degree(scaff_b) == 3 and len(set(nxG.adj[scaff_b].keys()).intersection(removed_paths)) == 2:
-    #             log.debug("Skipping node {} because more than one removed node is connected to the same"
-    #                       "backbone scaffold {}".format(scaff_x, scaff_b))
-    #             continue
-    #
-    #         path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
-    #         path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
-    #
-    #         # the possible combinations are
-    #         best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, [path_b, path_x])
-    #         if best_path[0][-1] in path_b:
-    #             node_b = best_path[0][-1]
-    #             node_x_a = best_path[1][0]
-    #             node_x_b = best_path[1][-1]
-    #         else:
-    #             node_x_a = best_path[0][-1]
-    #             node_x_b = best_path[0][0]
-    #             node_b = best_path[1][0]
-    #
-    #         # identify the neighbor in adjacent scaffold
-    #         node_a = None
-    #         for adj in self.scaffolds_graph.matrix_bins.adj[node_b].keys():
-    #             if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[node_b]['name']:
-    #                 node_a = adj
-    #                 break
-    #
-    #         try:
-    #             self.scaffolds_graph.restore_scaffold(scaff_x)
-    #         except:
-    #             import ipdb;ipdb.set_trace()
-    #         if node_a is not None:
-    #             self.scaffolds_graph.delete_edge_from_matrix_bins(node_b, node_a)
-    #             self.scaffolds_graph.add_edge_matrix_bins(node_x_b, node_a)
-    #
-    #         self.scaffolds_graph.add_edge_matrix_bins(node_b, node_x_a)
-    #         log.info("Scaffold {} successfully integrated into the network".format(scaff_x))
-    #
-    #     return
     def _bandwidth_permute(self, G, node_degree, node_degree_threshold):
         """
         Based on the maximum spanning tree graph hubs are resolved using the
@@ -801,120 +695,45 @@ class HiCAssembler:
                 continue
 
             for path in HiCAssembler._get_paths_from_backbone(branch, backbone_node):
-                # a. find the best orientation of scaff_b and the next branch scaffold
-                #    then break the scaffold path on the right side (if connected to other
-                #    backbone node)
+                # in path, path[0] is always the backbone node.
 
-                # identify adjacent node to scaff_b in `branch`
+                for scaff_name in path[1:]:
+                    # restore all scaffolds except for path[0] which is the backbone node (and was not removed)
+                    self.scaffolds_graph.restore_scaffold(scaff_name)
 
-                scaff_x = path[1]
-                path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
-                path_b = self.scaffolds_graph.scaffold.node[backbone_node]['path']
+                # get the matrix bin paths for each scaffold
+                bins_path = [self.scaffolds_graph.scaffold.node[x]['path'] for x in path]
 
-                best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, [path_b, path_x])
-                if best_path[0][-1] in path_b:
-                    node_b = best_path[0][-1]
-                    node_x_a = best_path[1][0]
-                    node_x_b = best_path[1][-1]
-                else:
-                    node_x_a = best_path[0][-1]
-                    node_x_b = best_path[0][0]
-                    node_b = best_path[1][0]
+                # a. find the best orientation of the scaffold paths with respect to each other
+                #     the best path contains the bins_path in the best computed orientations
+                # best_path[0] is the backbone scaffold path
+                best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, bins_path,
+                                                            only_expand_but_not_permute=True)
 
-                # identify the neighbor in adjacent scaffold
-                node_a = None
-                for adj in self.scaffolds_graph.matrix_bins.adj[node_b].keys():
-                    if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[node_b]['name']:
-                        node_a = adj
+                # the backbone bin id that should be joined with the removed scaffold
+                # corresponds to the the last bin_id in the first best_path, which is the backbone path
+                backbone_bin = best_path[0][-1]
+
+                # identify the neighbor bin of the backbone scaffold in adjacent scaffold (if any).
+                # To insert the removed scaffolds an edge in the assembled scaffolds has to be removed. This
+                # edge is the edge containing the backbone_bin.
+                adjacent_backbone_bin = None
+                for adj in self.scaffolds_graph.matrix_bins.adj[backbone_bin].keys():
+                    if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[backbone_bin]['name']:
+                        adjacent_backbone_bin = adj
                         break
 
-                self.scaffolds_graph.restore_scaffold(scaff_x)
-                if node_a is not None:
-                    self.scaffolds_graph.delete_edge_from_matrix_bins(node_b, node_a)
+                if adjacent_backbone_bin is not None:
+                    # delete edge between backbone and adjacent scaffold
+                    self.scaffolds_graph.delete_edge_from_matrix_bins(backbone_bin, adjacent_backbone_bin)
+                    # add edge between last bin in best path and adjacent scaffold
+                    self.scaffolds_graph.add_edge_matrix_bins(best_path[-1][-1], adjacent_backbone_bin)
 
-                self.scaffolds_graph.add_edge_matrix_bins(node_b, node_x_a)
-
-                log.info("Scaffold {} successfully integrated into the network".format(scaff_x))
-                path = path[1:]
                 # b. add the other edges in the path
-                for scaff_b, scaff_x in zip(path[:-1], path[1:]):
-                # while len(path) > 1:
-                #     scaff_b = scaff_x
-                #     scaff_x = path[1]
-                    try:
-                        path_x = self.scaffolds_graph.removed_scaffolds.node[scaff_x]['path']
-                    except:
-                        pass
-                    path_b = self.scaffolds_graph.scaffold.node[scaff_b]['path']
+                for path_u, path_v in zip(best_path[:-1], best_path[1:]):
+                    self.scaffolds_graph.add_edge_matrix_bins(path_u[-1], path_v[0])
 
-                    best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, [path_b, path_x])
-                    self.scaffolds_graph.restore_scaffold(scaff_x)
-                    if best_path[0][-1] in path_b:
-                        node_b = best_path[0][-1]
-                        node_x_a = best_path[1][0]
-                        node_x_b = best_path[1][-1]
-                    else:
-                        node_x_a = best_path[0][-1]
-                        node_x_b = best_path[0][0]
-                        node_b = best_path[1][0]
-                    try:
-                        self.scaffolds_graph.add_edge_matrix_bins(node_b, node_x_a)
-                    except:
-                        # this means that the orientation of node_b and node_x_a is not
-                        # compatible with the orientation identified for the previous scaffold
-                        log.debug("can not add path between {} and {}. Inverting path_b".format(node_b, node_x_a))
-                        # invert node_b
-                        if node_b == path_b[0]:
-                            node_b = path_b[-1]
-                        else:
-                            node_b = path_b[0]
-                        self.scaffolds_graph.add_edge_matrix_bins(node_b, node_x_a)
-
-                    path = path[1:]
-
-                if node_a is not None:
-                    self.scaffolds_graph.add_edge_matrix_bins(node_x_b, node_a)
-
-        return
-        # nodes with degree one are the easiest to put into the graph
-        #
-        #  A   B    C
-        #   o---o---o
-        #       \--o  <- easy to put back
-        #          X
-
-        scaff_degree_mst = dict(nxG.degree(nxG.node.keys()))
-
-
-        # iterate over all removed scaffolds
-        removed_paths = self.scaffolds_graph.removed_scaffolds.node.keys()
-        removed_paths = self.scaffolds_graph.removed_scaffolds.get_all_paths()
-        log.debug("Total number of removed scaffolds: {}".format(len(removed_paths)))
-        for scaff_x in removed_paths:
-
-            # ignore scaffolds with degree > 1
-            if nxG.degree(scaff_x) != 1:
-                log.info("Scaffold {} skipped because degree > 1".format(scaff_x))
-                continue
-
-            scaff_b = nxG.edge[scaff_x].keys()[0]
-            # check that scaff_b is not a removed scaffold
-            if scaff_b in self.scaffolds_graph.removed_scaffolds.node:
-                log.info("Scaffold is also removed {}".format(scaff_b))
-                continue
-
-            # skip backbone scaffolds with over three partners (at least two backbone neighbors) and
-            # one removed scaffold
-            if nxG.degree(scaff_b) > 3:
-                log.info("Backbone scaffold {} (connected to {}) has more than three edges".format(scaff_b, scaff_x))
-                continue
-
-            # skip if at least two neighbors are removed scaffolds
-            if nxG.degree(scaff_b) == 3 and len(set(nxG.adj[scaff_b].keys()).intersection(removed_paths)) == 2:
-                log.debug("Skipping node {} because more than one removed node is connected to the same"
-                          "backbone scaffold {}".format(scaff_x, scaff_b))
-                continue
-
+                log.info("Scaffolds {} successfully integrated into the network".format(path[1:]))
 
         return
 

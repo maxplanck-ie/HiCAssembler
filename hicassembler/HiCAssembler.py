@@ -383,6 +383,7 @@ class HiCAssembler:
 
         Returns
         -------
+        path list, where each path has the backbone as the first element
 
         Examples
         --------

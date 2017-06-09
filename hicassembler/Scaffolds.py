@@ -1395,6 +1395,65 @@ class Scaffolds(object):
         return perm_list[min_indx]
 
     @staticmethod
+    def find_best_direction(ma, paths):
+        """
+        For a list of paths, uses the banwdith measurement to identify the direction of the pahts
+        by flipping each path and evaluating if the bandwidh decreases.
+
+        Parameters
+        ----------
+        ma: HiCMatrix object
+        paths: list of paths, containing paths that should not be reorder
+
+        Returns
+        -------
+        path : path with the lowest bw
+
+        Examples
+        --------
+        >>> from scipy.sparse import csr_matrix
+        >>> A = csr_matrix(np.array(
+        ... [[50,  19,  9,  8,  5,  3,  2,  1,  0,  0],
+        ...  [ 0, 50,  20,  9,  8,  5,  3,  2,  1,  0],
+        ...  [ 0,  0, 50,  19,  9,  8,  5,  3,  2,  1],
+        ...  [ 0,  0,  0, 50,  19,  9,  8,  5,  3,  2],
+        ...  [ 0,  0,  0,  0, 50,  19,  9,  8,  5,  3],
+        ...  [ 0,  0,  0,  0,  0, 50,  19,  9,  8,  5],
+        ...  [ 0,  0,  0,  0,  0,  0, 50,  19,  9,  8],
+        ...  [ 0,  0,  0,  0,  0,  0,  0, 50,  19,  9],
+        ...  [ 0,  0,  0,  0,  0,  0,  0,  0, 50,  19],
+        ...  [ 0,  0,  0,  0,  0,  0,  0,  0,  0, 50]]))
+
+        >>> A = A + A.T
+        >>> Scaffolds.find_best_direction(A, [[2, 1, 0], [3, 4, 5], [9, 8, 7, 6]])
+        [[0, 1, 2], [3, 4, 5], [6, 7, 8, 9]]
+
+        """
+        indices = sum(paths, [])
+        ma = ma[indices, :][:, indices]
+        ma.setdiag(0)
+        # mapping from 'indices' to new matrix id
+        mapping = dict([(val, idx) for idx, val in enumerate(indices)])
+        min_value = np.Inf
+        best_path = paths[:]
+        prev_path = None
+        for idx, sub_path in enumerate(paths):
+            if len(sub_path) == 1:
+                continue
+            for sub_path_flipped in [sub_path, sub_path[::-1]]:
+                path_to_test = best_path[:idx] + [sub_path_flipped] + best_path[idx+1:]
+                if prev_path is not None and prev_path == path_to_test:
+                    continue
+                path_indices = sum(path_to_test, [])
+                mapped_perm = [mapping[x] for x in path_indices]
+                bw_value = Scaffolds.bw(ma[mapped_perm, :][:, mapped_perm])
+                if bw_value < min_value:
+                    best_path = path_to_test
+                    min_value = bw_value
+                prev_path = path_to_test
+        return best_path
+
+    @staticmethod
     def bw(ma):
         """
         Computes my version of the bandwidth of the matrix
@@ -1680,6 +1739,61 @@ class Scaffolds(object):
                 u = path[-1]
                 v = s_path[index + 1][0]
                 self.add_edge(u, v, weight=self.matrix[u, v])
+    @staticmethod
+    def _return_paths_from_graph(G):
+        """
+        Returns all paths from a networkX graph.
+        The graph should only contain paths, this means that no node has a degree > 2
+
+
+        Parameters
+        ----------
+        G
+
+        Returns
+        -------
+        List of paths
+
+        Examples
+        --------
+
+        >>> G = nx.path_graph(4)
+        >>> G.add_edge(10, 11)
+        >>> G.add_edge(11, 12)
+        >>> G.add_edge(12, 13, weight=6)
+        >>> Scaffolds._return_paths_from_graph(G)
+        [[0, 1, 2, 3], [10, 11, 12, 13]]
+
+        """
+        path_list = []
+        for conn_component in nx.connected_component_subgraphs(G):
+            source = next(iter(conn_component))  # get one random node from the connected component
+            path = [source]
+
+            # the algorithm works by adding to path the adjacent nodes one after the other.
+            # Because the source node could be in the middle of a path, basically two paths
+            # are computed and merged. Eg. for the path [0, 1, 2, 3, 4] where `source` = 2
+            # the algorithm finds the path for neighbor `1` which is [0, 1], and the path for neighbor `3`
+            # which is [3, 4]. The path building starts by [2], then progress through [2, 1, 0], then is inverted
+            # and to add the [3, 4] path to yield [0, 1, 2, 3, 4].
+            for next_node in sorted(G[source])[::-1]:
+                # reverse sorting is just to get the paths in progressing order. Eg. 0, 1, 2 instead of 2, 1, 0
+                seen = source
+                i = 0
+                while True:
+                    i += 1
+                    if i > 100:
+                        pass
+                    adj_list = [x for x in G[next_node] if x != seen]
+                    if len(adj_list) == 0:
+                        path.append(next_node)
+                        break
+                    path.append(next_node)
+                    seen = next_node
+                    next_node = adj_list[0]
+                path = path[::-1]
+            path_list.append(path)
+        return path_list
 
     def _remove_weakest(self, G):
         """
@@ -1718,18 +1832,48 @@ class Scaffolds(object):
             if degree <= 2:
                 break
 
-        # based on the resulting maximum spanning tree, add the new edges to
-        # the paths graph from strongest to weakest
-        for u, v, data in sorted(G.edges(data=True), key=lambda x: x[2]['weight'], reverse=True):
-            if u in self.pg_base[v]:
-                # skip same path nodes
-                continue
-            else:
-                try:
-                    self.add_edge(u, v, weight=data['weight'])
-                except ScaffoldException as e:
-                    log.warn(e)
-                    pass
+        # now, the G graph should contain only paths
+        for path in Scaffolds._return_paths_from_graph(G):
+            self.add_path(path)
+
+        # for u, v, data in sorted(G.edges(data=True), key=lambda x: x[2]['weight'], reverse=True):
+        #     if u in self.pg_base[v]:
+        #         # skip same path nodes
+        #         continue
+        #     else:
+        #         try:
+        #             self.add_edge(u, v, weight=data['weight'])
+        #         except ScaffoldException as e:
+        #             log.warn(e)
+        #             pass
+
+    def add_path(self, path):
+        """
+        Adds all the edges to the internal PathGraphs based on the given path
+
+
+        Parameters
+        ----------
+        path : list of pg_base nodes that want to be added
+
+        Returns
+        -------
+
+        """
+
+        # get the matrix bin paths for each scaffold
+        bins_path = [self.pg_base.node[x]['initial_path'] for x in path]
+
+        # find best orientation
+        if len(path) < 10:
+            best_path = Scaffolds.find_best_permutation(self.hic.matrix, bins_path, only_expand_but_not_permute=True)
+            if best_path != Scaffolds.find_best_direction(self.hic.matrix, bins_path):
+                pass
+        else:
+            best_path = Scaffolds.find_best_direction(self.hic.matrix, bins_path)
+
+        for path_u, path_v in zip(best_path[:-1], best_path[1:]):
+            self.add_edge_matrix_bins(path_u[-1], path_v[0])
 
     def make_nx_graph(self):
         """

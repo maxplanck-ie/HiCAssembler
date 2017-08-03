@@ -56,7 +56,7 @@ class HiCAssembler:
     def __init__(self, hic_file_name, fasta_file, out_folder,
                  min_mad=MIN_MAD, max_mad=MAX_MAD, split_misassemblies=True,
                  min_scaffold_length=MIN_LENGTH, matrix_bin_size=25000, use_log=False,
-                 num_processors=5):
+                 num_processors=5, misassembly_zscore_threshold=ZSCORE_THRESHOLD):
         """
         Prepares a hic matrix for assembly.
         It is expected that initial contigs or scaffolds contain bins
@@ -124,6 +124,7 @@ class HiCAssembler:
         self.max_mad = max_mad
         self.min_scaffold_length = min_scaffold_length
         self.num_processors = num_processors
+        self.missassembly_threshold = misassembly_zscore_threshold
         self.merged_paths = None
         self.iteration = 0
 
@@ -161,11 +162,17 @@ class HiCAssembler:
             self.N50.append(n50)
 
             # the first iteration is is more stringent
-            if iteration < 2:
-
-                self.scaffolds_graph.split_and_merge_contigs(num_splits=2, target_size=(self.min_scaffold_length * (iteration + 1)), normalize_method='ice')
+            if iteration < 4:
+                log.debug("Setting target_size to {}".format(self.scaffolds_graph.paths_min))
+                self.scaffolds_graph.split_and_merge_contigs(num_splits=3,
+                                                             target_size=int(min(2e6, self.scaffolds_graph.paths_min * (iteration + 1))),
+                                                             normalize_method='ice')
                 stats = self.scaffolds_graph.get_stats_per_split()
-                conf_score = stats[2]['median']
+                try:
+                    conf_score = stats[1]['median']
+                    conf_score = stats[1]['min']
+                except:
+                    import ipdb;ipdb.set_trace()
                 log.debug("Confidence score set to {}".format(conf_score))
 
                 # self.scaffolds_graph.split_and_merge_contigs(num_splits=2, normalize_method='ice')
@@ -668,7 +675,8 @@ class HiCAssembler:
 
         """
         log.info("Detecting misassemblies")
-        ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=False)
+        ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors,
+                                     use_zscore=True)
         tad_score_file = self.out_folder + "/misassembly_score.txt"
         reduced_matrix_file = self.out_folder + "/hic_reduced_matrix.h5"
         # check if the computation for the misassembly score was already done
@@ -714,8 +722,8 @@ class HiCAssembler:
                     new_cut_intervals[matrix_bin] = (new_name, cut_start, cut_end, extra)
                     if matrix_bin in id_list:
                         part_number += 1
-
-        for idx in np.flatnonzero(zscore < ZSCORE_THRESHOLD):
+        # import ipdb;ipdb.set_trace()
+        for idx in np.flatnonzero(zscore < self.missassembly_threshold):
             # split the scaffolds at this position
             if prev_scaff is not None and scaffold[idx] != prev_scaff:
                 rename_cut_intervals(bin_ids, prev_scaff)
@@ -873,92 +881,6 @@ class HiCAssembler:
 
         #contig, start, end, cov = zip(*self.scaffolds_graph.hic.cut_intervals)
         #self.scaffolds_graph.hic.cut_intervals = zip(name_list, start, end, cov)
-
-    def reduce_to_flanks_and_center(self, flank_length=20000):
-        """
-        removes the contigs that are inside of a path keeping only the
-        flanking contigs up to the specified `flank_length`. The length
-        of the contigs left at the flanks tries to be close to the
-        flank_length argument. The purpose of this is to identify the orientation
-        of a scaffold/contig by focusing on the sides.
-
-        Parameters
-        ----------
-        flank_length : in bp
-
-        Returns
-        -------
-        """
-        log.info("reduce to flanks and center. flank_length: {}".format(flank_length))
-
-        # flattened list of merged_paths  e.g [[1,2],[3,4],[5,6],[7,8]].
-        # This is in contrast to a list containing flanks_of_path that may
-        # look like [ [[1,2],[3,4]], [[5,6]] ]
-        paths_flatten = []
-
-        # list to keep the id of the new flanks_of_path after they
-        # are merged. For example, for a flanks_of_path list e.g. [[0,1], [2,3]]]
-        # after merging (that is matrix merging of the respective bins e.g 0 and 1)
-        # the [0,1] becomes bin [0] and [2,3] becomes bin 1. Thus, merged_paths_id_map
-        # has the value [[0,1]]. Further merged paths are appended as new lists
-        # eg [[0,1], [2,3] .. etc. ]
-        merged_paths_id_map = []
-        i = 0
-        contig_len = self.scaffolds_graph.get_contigs_length()
-        for path in self.scaffolds_graph.get_all_paths():
-            flanks_of_path = HiCAssembler.get_flanks(path, flank_length, contig_len, 6)
-            if self.iteration > 1:
-                # skip short paths after iteration 1
-                if sum(contig_len[HiCAssembler.flatten_list(flanks_of_path)]) < flank_length*0.3:
-                    continue
-            merged_paths_id_map.append(range(i, len(flanks_of_path)+i))
-            i += len(flanks_of_path)
-            paths_flatten.extend(flanks_of_path)
-
-#            print "in {} out {} ".format(path, flanks_of_path)
-        if len(paths_flatten) == 0:
-            print "[{}] Nothing to reduce.".format(inspect.stack()[0][3])
-            return None, None
-
-        reduce_paths = paths_flatten[:]
-        # the matrix is to be reduced
-        # but all original rows should be referenced
-        # that is why i append the to remove to the
-        # reduce_paths
-        self.matrix = reduce_matrix(self.matrix, reduce_paths).tolil()
-        if len(reduce_paths) < 2:
-            log.info("Reduce paths to small {}. Returning".format(len(reduce_paths)))
-            return None, None
-        try:
-            start_time = time.time()
-            self.cmatrix = iterativeCorrection(self.matrix, M=30, verbose=True)[0]
-            elapsed_time = time.time() - start_time
-            log.debug("time iterative_correction: {:.5f}".format(elapsed_time))
-
-            # put a high value to all edges belonging to an original path
-            max_int = self.cmatrix.data.max()+1
-        except:
-            log.info("Reduce matrix is empty. Returning".format(len(reduce_paths)))
-            return None, None
-
-        self.cmatrix = self.cmatrix.tolil()
-        for path in merged_paths_id_map:
-            if len(path) > 1:
-                # take pairs and replace the respective value
-                # in the matrix by the masx int
-#                import pdb;pdb.set_trace()
-                for idx in range(len(path)-1):
-                    # doing [(idx,idx+1),(idx+1,idx)]
-                    # to keep the symmetry of the matrix.
-                    # i.e. adding [1,2] and [2,1]
-                    for c,d in [(idx,idx+1),(idx+1,idx)]:
-#                        print "adding {},{}={}".format(path[c], path[d], max_int)
-                        self.cmatrix[path[c], path[d]] = max_int
-        self.cmatrix=self.cmatrix.tocsr()
-        self.paths = paths_flatten
-        self.merged_paths = merged_paths_id_map
-
-        return max_int
 
     def get_nearest_neighbors_2(self, paths, min_neigh=1, trans=True, threshold=0,
                                 max_int=None):

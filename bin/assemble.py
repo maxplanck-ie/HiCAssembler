@@ -61,6 +61,20 @@ def parse_arguments(args=None):
                         type=int,
                         default=1)
 
+    parser.add_argument('--misassembly_zscore_threshold', '-mzt',
+                        help='To detect misasemblies, a z-score is computed similar to the method used to identify '
+                             'TAD boundaries (see HiCExploer `hicFindTADs`). Missassemblies appear as strong TAD '
+                             'boundaries but it not straightforward to distinguish true misassemblies from TAD '
+                             'boundaries. A relax threshold is used by default because a false positive (a TAD '
+                             'boundary that is thought to be a misassembly) has a litle impact on the assembly '
+                             'compared to a false negative (a misassembly that was not detected). However, the '
+                             'default parameter may fragment the contigs/scaffolds to frequently and a more '
+                             'stringent value is preferable. A simple way to test if misasemblies are present is '
+                             'by inspecting the resulting matrix by clear gaps. If this is the case, change the '
+                             'zscore threshold to a larger value. ',
+                        required=False,
+                        type=float,
+                        default=-1)
 
     return parser.parse_args(args)
 
@@ -180,7 +194,8 @@ def main(args):
     assembl = HiCAssembler.HiCAssembler(args.matrix, args.fasta, args.outFolder,
                                         min_scaffold_length=args.min_scaffold_length,
                                         matrix_bin_size=args.bin_size,
-                                        num_processors=args.num_processors)
+                                        num_processors=args.num_processors,
+                                        misassembly_zscore_threshold=args.misassembly_zscore_threshold)
 
     super_contigs = assembl.assemble_contigs()
     save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)

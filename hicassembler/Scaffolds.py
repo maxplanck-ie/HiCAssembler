@@ -562,7 +562,10 @@ class Scaffolds(object):
 
         Parameters
         ----------
-        num_splits
+        num_splits number of parts in which the contig is split.
+        target_size overrides num_splits. Instead, the num_splits is computed based on the target size.
+        normalize_method after the contigs are split, the individual bins that constitute each split are merged and
+                        subsequently normalized using the given method. Default is 'mean'
 
         Returns
         -------
@@ -1568,7 +1571,7 @@ class Scaffolds(object):
         The weakest link for the hub 'b' (b-e) is removed
         >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=5)
         >>> list(S.get_all_paths())
-        [[0, 1, 2, 3], [4, 5]]
+        [[3, 2, 1, 0], [5, 4]]
 
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
         >>> S = Scaffolds(hic)
@@ -1581,7 +1584,7 @@ class Scaffolds(object):
         >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest',
         ...                            node_degree_threshold=4)
         >>> list(S.get_all_paths())
-        [[0], [1], [2, 3, 4, 5]]
+        [[0], [1], [5, 4, 3, 2]]
 
         Test bandwidth permutation
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
@@ -1762,8 +1765,7 @@ class Scaffolds(object):
         >>> G.add_edge(11, 12)
         >>> G.add_edge(12, 13, weight=6)
         >>> Scaffolds._return_paths_from_graph(G)
-        [[0, 1, 2, 3], [10, 11, 12, 13]]
-
+        [[3, 2, 1, 0], [13, 12, 11, 10]]
         """
         path_list = []
         for conn_component in nx.connected_component_subgraphs(G):
@@ -1776,14 +1778,13 @@ class Scaffolds(object):
             # the algorithm finds the path for neighbor `1` which is [0, 1], and the path for neighbor `3`
             # which is [3, 4]. The path building starts by [2], then progress through [2, 1, 0], then is inverted
             # and to add the [3, 4] path to yield [0, 1, 2, 3, 4].
-            for next_node in sorted(G[source])[::-1]:
-                # reverse sorting is just to get the paths in progressing order. Eg. 0, 1, 2 instead of 2, 1, 0
+            for next_node in sorted(G[source]):
                 seen = source
                 i = 0
                 while True:
                     i += 1
-                    if i > 100:
-                        pass
+                    if i > len(conn_component):
+                        raise ScaffoldException
                     adj_list = [x for x in G[next_node] if x != seen]
                     if len(adj_list) == 0:
                         path.append(next_node)
@@ -1861,8 +1862,20 @@ class Scaffolds(object):
 
         """
 
-        # get the matrix bin paths for each scaffold
-        bins_path = [self.pg_base.node[x]['initial_path'] for x in path]
+        # for each id in in path, find the 'initial_path' in the un-merged hic-matrix
+        # that it points to. Because of internal splits a set is created to avoid duplicates.
+
+        seen = set()
+        bins_path = []
+        for x in path:
+            # the initial path from pg_base could be an split from a larger path.
+            # Thus, to select the original, un split path, the first node of the
+            # pg_base initial path is used to query the matrix_bins PathGraph to return
+            # the full path
+            init_path = self.matrix_bins[self.pg_base.node[x]['initial_path'][0]]
+            if init_path[0] not in seen:
+                bins_path.append(init_path)
+                seen.update(init_path)
 
         # find best orientation
         if len(path) < 10:

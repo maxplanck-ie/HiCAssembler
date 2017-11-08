@@ -1400,8 +1400,8 @@ class Scaffolds(object):
     @staticmethod
     def find_best_direction(ma, paths):
         """
-        For a list of paths, uses the banwdith measurement to identify the direction of the pahts
-        by flipping each path and evaluating if the bandwidh decreases.
+        For a list of paths, uses the bandwidth measurement to identify the direction of the paths
+        by flipping each path and evaluating if the bandwidth decreases.
 
         Parameters
         ----------

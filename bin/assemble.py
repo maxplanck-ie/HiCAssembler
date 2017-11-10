@@ -66,7 +66,7 @@ def parse_arguments(args=None):
                              'TAD boundaries (see HiCExploer `hicFindTADs`). Missassemblies appear as strong TAD '
                              'boundaries but it not straightforward to distinguish true misassemblies from TAD '
                              'boundaries. A relax threshold is used by default because a false positive (a TAD '
-                             'boundary that is thought to be a misassembly) has a litle impact on the assembly '
+                             'boundary that is thought to be a misassembly) has a little impact on the assembly '
                              'compared to a false negative (a misassembly that was not detected). However, the '
                              'default parameter may fragment the contigs/scaffolds to frequently and a more '
                              'stringent value is preferable. A simple way to test if misasemblies are present is '

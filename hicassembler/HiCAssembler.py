@@ -90,21 +90,20 @@ class HiCAssembler:
         else:
             log.info("Loading Hi-C matrix ... ")
             # check if a lower resolution matrix is available
-            merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"
-            # check if the computation for the misassembly score was already done
+            merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"            # check if
             if os.path.isfile(merged_bins_matrix_file):
                 log.info("Found reduced matrix file {}".format(merged_bins_matrix_file))
                 self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
             else:
                 self.hic = HiCMatrix.hiCMatrix(hic_file_name)
-                log.info("Finish")
+                log.info("Merging bins of file to reduce resolution")
                 binsize = self.hic.getBinSize()
                 if binsize < matrix_bin_size:
                     # make an smaller matrix having bins of around 25.000 bp
                     num_bins = matrix_bin_size / binsize
 
                     from hicexplorer.hicMergeMatrixBins import merge_bins
-                    log.info("Reducing matrix size to 25.000 bp (number of bins merged: {})".format(num_bins))
+                    log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
                     self.hic = merge_bins(self.hic, num_bins)
                 # remove empty bins
                 self.hic.maskBins(self.hic.nan_bins)
@@ -130,13 +129,18 @@ class HiCAssembler:
 
         #self.remove_noise_from_matrix()
 
-        if split_misassemblies:
-            # try to find contigs that probably should be separated
-            self.split_misassemblies(hic_file_name)
-
         # build scaffolds graph. Bins on the same contig are
         # put together into a path (a type of graph with max degree = 2)
         self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic))
+
+        self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly", shuffle_scaffolds=True)
+        if split_misassemblies:
+            # try to find contigs that probably should be separated
+            self.split_misassemblies(hic_file_name)
+            # build scaffolds graph. Bins on the same contig are
+            # put together into a path (a type of graph with max degree = 2)
+            self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic))
+            self.plot_matrix(self.out_folder + "/after_split_assembly.pdf", title="After split miss-assemblies assembly", shuffle_scaffolds=True)
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
@@ -152,7 +156,6 @@ class HiCAssembler:
         -------
 
         """
-        self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly")
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
         for iteration in range(5):
             n50 = self.scaffolds_graph.compute_N50()
@@ -675,18 +678,29 @@ class HiCAssembler:
 
         """
         log.info("Detecting misassemblies")
-        ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors,
-                                     use_zscore=True)
+
+        ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=True)
+        # adjust window sizes to compute misassembly score (aka tad-score)
+        ft.max_depth = max(800000, ft.binsize * 100)
+        ft.min_depth = min(200000, ft.binsize * 40)
+        ft.step = ft.binsize * 10
+
+        log.debug("zscore window sizes set by hicassembler: ")
+        log.debug("max depth:\t{}\n".format(ft.max_depth))
+        log.debug("min depth:\t{}\n".format(ft.min_depth))
+        log.debug("step:\t{}\n".format(ft.step))
+        log.debug("bin size:\t{}\n".format(ft.binsize))
+
         tad_score_file = self.out_folder + "/misassembly_score.txt"
-        reduced_matrix_file = self.out_folder + "/hic_reduced_matrix.h5"
+        zscore_matrix_file = self.out_folder + "/zscore_matrix.h5"
         # check if the computation for the misassembly score was already done
-        if not os.path.isfile(tad_score_file):
-            ft.compute_spectra_matrix()
+        if not os.path.isfile(tad_score_file) or not os.path.isfile(zscore_matrix_file):
+            ft.compute_spectra_matrix(perchr=False)
             ft.save_bedgraph_matrix(tad_score_file)
-            ft.hic_ma.save(reduced_matrix_file)
+            ft.hic_ma.save(zscore_matrix_file)
         else:
-            log.info("Using previously computed scores: {}\t{}".format(tad_score_file, reduced_matrix_file))
-            ft.hic_ma = HiCMatrix.hiCMatrix(reduced_matrix_file)
+            log.info("Using previously computed scores: {}\t{}".format(tad_score_file, zscore_matrix_file))
+            ft.hic_ma = HiCMatrix.hiCMatrix(zscore_matrix_file)
             ft.load_bedgraph_matrix(tad_score_file)
         ft.find_boundaries()
 
@@ -723,6 +737,7 @@ class HiCAssembler:
                     if matrix_bin in id_list:
                         part_number += 1
         # import ipdb;ipdb.set_trace()
+        log.info("Splitting scaffolds using threshold = {}".format(self.missassembly_threshold))
         for idx in np.flatnonzero(zscore < self.missassembly_threshold):
             # split the scaffolds at this position
             if prev_scaff is not None and scaffold[idx] != prev_scaff:
@@ -742,7 +757,27 @@ class HiCAssembler:
         log.info("{} misassemblies were removed".format(len(np.flatnonzero(zscore < -1.64))))
 
     def plot_matrix(self, filename, title='Assembly results',
-                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None):
+                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None, shuffle_scaffolds=False):
+        '''
+        Plots the resolved paths on a matrix
+
+        Parameters
+        ----------
+        filename
+        title
+        cmap
+        log1p
+        add_vlines
+        vmax
+        vmin
+        shuffle_scaffolds Set to true to randomly shuffle the scaffolds. This is useful when plotting the
+                           before assembly matrix and the after remove mis-assemblies to visually separate scaffolds.
+
+
+        Returns
+        -------
+        None
+        '''
 
         log.debug("plotting matrix")
         import matplotlib.pyplot as plt
@@ -750,6 +785,14 @@ class HiCAssembler:
 
         fig = plt.figure(figsize=(10,10))
         hic = self.reorder_matrix()
+
+        chrbin_boundaries = hic.chrBinBoundaries
+        # if shuffle_scaffolds:
+        #     log.debug("Scaffolds are being shuffled for printing matrix")
+        #     new_scaff_order = chrbin_boundaries.keys()
+        #     np.random.shuffle(new_scaff_order)
+        #     hic.reorderChromosomes(new_scaff_order)
+        #     chrbin_boundaries = hic.chrBinBoundaries
 
         axHeat2 = fig.add_subplot(111)
         axHeat2.set_title(title)
@@ -768,7 +811,6 @@ class HiCAssembler:
         cbar = fig.colorbar(img3, cax=cax)
         cbar.solids.set_edgecolor("face")  # to avoid white lines in the color bar in pdf plots
 
-        chrbin_boundaries = hic.chrBinBoundaries
         ticks = [pos[0] for pos in chrbin_boundaries.values()]
         labels = chrbin_boundaries.keys()
         axHeat2.set_xticks(ticks)
@@ -849,9 +891,10 @@ class HiCAssembler:
 
         return super_scaffolds
 
-    def reorder_matrix(self):
+    def reorder_matrix(self, shuffle_scaffolds=False):
         """
         Reorders the matrix using the assembled paths
+
         Returns
         -------
         """

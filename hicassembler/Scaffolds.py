@@ -1651,6 +1651,7 @@ class Scaffolds(object):
             matrix.eliminate_zeros()
             self.matrix.eliminate_zeros()
 
+        self.matrix = matrix
         nxG = self.make_nx_graph()
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')

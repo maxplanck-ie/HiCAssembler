@@ -140,7 +140,9 @@ class HiCAssembler:
             # build scaffolds graph. Bins on the same contig are
             # put together into a path (a type of graph with max degree = 2)
             self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
-            self.plot_matrix(self.out_folder + "/after_split_assembly.pdf", title="After split miss-assemblies assembly", shuffle_scaffolds=True)
+            self.plot_matrix(self.out_folder + "/after_split_assembly.pdf",
+                             title="After split miss-assemblies assembly", shuffle_scaffolds=True,
+                             add_vlines=True)
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small

@@ -131,7 +131,7 @@ class HiCAssembler:
 
         # build scaffolds graph. Bins on the same contig are
         # put together into a path (a type of graph with max degree = 2)
-        self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic))
+        self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
 
         self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly", shuffle_scaffolds=True)
         if split_misassemblies:
@@ -166,9 +166,10 @@ class HiCAssembler:
 
             # the first iteration is is more stringent
             if iteration < 4:
-                log.debug("Setting target_size to {}".format(self.scaffolds_graph.paths_min))
+                target_size = int(min(2e6, self.scaffolds_graph.paths_min * (iteration + 1)))
+                log.debug("Merging small bins in larger bins of size {} bp".format(target_size))
                 self.scaffolds_graph.split_and_merge_contigs(num_splits=3,
-                                                             target_size=int(min(2e6, self.scaffolds_graph.paths_min * (iteration + 1))),
+                                                             target_size=target_size,
                                                              normalize_method='ice')
                 stats = self.scaffolds_graph.get_stats_per_split()
                 try:
@@ -814,21 +815,21 @@ class HiCAssembler:
         ticks = [pos[0] for pos in chrbin_boundaries.values()]
         labels = chrbin_boundaries.keys()
         axHeat2.set_xticks(ticks)
-        if len(labels) <= 20:
-            axHeat2.set_xticklabels(labels, size=8)
-        elif 40 > len(labels) > 20:
-            axHeat2.set_xticklabels(labels, size=4, rotation=90)
+        if len(labels) < 40:
+            axHeat2.set_xticklabels(labels, size=3, rotation=90)
         else:
-            axHeat2.set_xticklabels(labels, size=2, rotation=90)
+            axHeat2.set_xticklabels(labels, size=1, rotation=90)
 
         if add_vlines:
             # add lines to demarcate 'super scaffolds'
             vlines = [x[0] for x in hic.chromosomeBinBoundaries.values()]
-            axHeat2.vlines(vlines, 1, ma.shape[0], linewidth=0.5)
+            axHeat2.vlines(vlines, 1, ma.shape[0], linewidth=0.1)
             axHeat2.set_ylim(ma.shape[0], 0)
         axHeat2.get_yaxis().set_visible(False)
         log.debug("saving matrix {}".format(filename))
         plt.savefig(filename, dpi=300)
+        plt.close()
+
 
     def remove_noise_from_matrix(self):
         """

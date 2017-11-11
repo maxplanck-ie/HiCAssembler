@@ -52,7 +52,7 @@ class Scaffolds(object):
 
 
     """
-    def __init__(self, hic_matrix):
+    def __init__(self, hic_matrix, out_folder=None):
         """
 
         Parameters
@@ -72,7 +72,7 @@ class Scaffolds(object):
         self.hic = hic_matrix
         self.matrix = None  # will contain the reduced matrix
         self.total_length = None
-
+        self.out_folder = '/tmp/' if out_folder is None else out_folder
         # three synchronized PathGraphs are used
         # 1. matrix_bins contains the bin id related to the hic matrix. This is the most lower level PathGraph
         # and the ids always match the ids in the self.hic.matrix
@@ -82,7 +82,7 @@ class Scaffolds(object):
         # a reference to the matrix bins it contains
         self.scaffold = PathGraph()
 
-        # 3. this PathGraph contains iterative merges of the self.hic.matrix. It dynamic and changing in contrast to
+        # 3. this PathGraph contains iterative merges of the self.hic.matrix. It is dynamic and changing in contrast to
         # the other matrices. The nodes in this matrix, match the nodes of the self.matrix after a merge round
         # occurs
         self.pg_base = None
@@ -490,7 +490,8 @@ class Scaffolds(object):
         import matplotlib.pyplot as plt
         paths_length = np.fromiter(self.get_paths_length(), int)
         plt.hist(paths_length, 100)
-        file_name = "/tmp/stats_len_{}.pdf".format(len(paths_length))
+        # TODO clear debug code that generates images
+        file_name = "{}/stats_len_{}.pdf".format(self.out_folder, len(paths_length))
         log.debug("Saving histogram {} ".format(file_name))
         plt.savefig(file_name)
         plt.close()
@@ -1606,6 +1607,8 @@ class Scaffolds(object):
         >>> list(S.get_all_paths())
         [[0], [1], [2, 3, 4, 5]]
 
+        >>> S.matrix.todense()
+
         """
         matrix = self.matrix.copy()
 
@@ -1651,7 +1654,7 @@ class Scaffolds(object):
         nxG = self.make_nx_graph()
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
-        nx.write_graphml(nxG, "ice_mst_{}.graphml".format(self.matrix.shape[0]))
+        nx.write_graphml(nxG, "{}/ice_mst_{}.graphml".format(self.out_folder, self.matrix.shape[0]))
         degree = np.array(dict(nxG.degree()).values())
         if len(degree[degree > 2]):
             # count number of hubs

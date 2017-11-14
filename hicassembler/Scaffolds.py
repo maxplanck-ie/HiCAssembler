@@ -209,7 +209,7 @@ class Scaffolds(object):
         for v in pathgraph:
             # v in pathgraph returns all nodes in the pathgraph
             if v not in seen:
-                # parhgraph[v] returns a path containing v
+                # pathgraph[v] returns a path containing v
                 yield pathgraph[v]
             seen.update(pathgraph[v])
 

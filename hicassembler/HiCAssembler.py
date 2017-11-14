@@ -105,14 +105,6 @@ class HiCAssembler:
                     from hicexplorer.hicMergeMatrixBins import merge_bins
                     log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
                     self.hic = merge_bins(self.hic, num_bins)
-                # remove empty bins
-                self.hic.maskBins(self.hic.nan_bins)
-                try:
-                    del self.hic.orig_bin_ids
-                    del self.hic.orig_cut_intervals
-                    self.hic.correction_factors = None
-                except:
-                    pass
 
                 self.hic.save(merged_bins_matrix_file)
 
@@ -133,7 +125,7 @@ class HiCAssembler:
         # put together into a path (a type of graph with max degree = 2)
         self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
 
-        self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly", shuffle_scaffolds=True)
+        self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly")
         if split_misassemblies:
             # try to find contigs that probably should be separated
             self.split_misassemblies(hic_file_name)
@@ -141,8 +133,7 @@ class HiCAssembler:
             # put together into a path (a type of graph with max degree = 2)
             self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
             self.plot_matrix(self.out_folder + "/after_split_assembly.pdf",
-                             title="After split miss-assemblies assembly", shuffle_scaffolds=True,
-                             add_vlines=True)
+                             title="After split miss-assemblies assembly", add_vlines=True)
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
@@ -160,6 +151,7 @@ class HiCAssembler:
         """
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
         for iteration in range(5):
+            self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
 
@@ -195,9 +187,9 @@ class HiCAssembler:
                                                           hub_solving_method='remove weakest')
 
             if iteration == 0:
-#                self.scaffolds_graph.remove_small_paths(self.min_scaffold_length * 3)
-                self.scaffolds_graph.remove_small_paths(300000, split_scaffolds=True)
-            self.plot_matrix(self.out_folder + "/after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
+                self.scaffolds_graph.remove_small_paths(self.min_scaffold_length, split_scaffolds=True)
+            self.plot_matrix(self.out_folder + "/after_assembly_{}.pdf".format(iteration),
+                             title="Assembly iteration {}".format(iteration), add_vlines=True)
 
         before_assembly_length, before_num_paths = self.scaffolds_graph.get_assembly_length()
 
@@ -682,29 +674,30 @@ class HiCAssembler:
         """
         log.info("Detecting misassemblies")
 
-        ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=True)
-        # adjust window sizes to compute misassembly score (aka tad-score)
-        ft.max_depth = max(800000, ft.binsize * 100)
-        ft.min_depth = min(200000, ft.binsize * 40)
-        ft.step = ft.binsize * 10
-
-        log.debug("zscore window sizes set by hicassembler: ")
-        log.debug("max depth:\t{}\n".format(ft.max_depth))
-        log.debug("min depth:\t{}\n".format(ft.min_depth))
-        log.debug("step:\t{}\n".format(ft.step))
-        log.debug("bin size:\t{}\n".format(ft.binsize))
-
         tad_score_file = self.out_folder + "/misassembly_score.txt"
         zscore_matrix_file = self.out_folder + "/zscore_matrix.h5"
         # check if the computation for the misassembly score was already done
         if not os.path.isfile(tad_score_file) or not os.path.isfile(zscore_matrix_file):
+            ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=True)
+            # adjust window sizes to compute misassembly score (aka tad-score)
+            ft.max_depth = max(800000, ft.binsize * 500)
+            ft.min_depth = min(200000, ft.binsize * 200)
+            ft.step = ft.binsize * 50
+            ft.hic_ma.matrix.data = np.log1p(ft.hic_ma.matrix.data)
+
+            log.debug("zscore window sizes set by hicassembler: ")
+            log.debug("max depth:\t{}".format(ft.max_depth))
+            log.debug("min depth:\t{}".format(ft.min_depth))
+            log.debug("step:\t{}".format(ft.step))
+            log.debug("bin size:\t{}".format(ft.binsize))
             ft.compute_spectra_matrix(perchr=False)
             ft.save_bedgraph_matrix(tad_score_file)
             ft.hic_ma.save(zscore_matrix_file)
-        else:
-            log.info("Using previously computed scores: {}\t{}".format(tad_score_file, zscore_matrix_file))
-            ft.hic_ma = HiCMatrix.hiCMatrix(zscore_matrix_file)
-            ft.load_bedgraph_matrix(tad_score_file)
+
+        log.info("Using previously computed scores: {}\t{}".format(tad_score_file, zscore_matrix_file))
+        ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=True)
+        ft.hic_ma = HiCMatrix.hiCMatrix(zscore_matrix_file)
+        ft.load_bedgraph_matrix(tad_score_file)
         ft.find_boundaries()
 
         tuple_ = []
@@ -739,7 +732,7 @@ class HiCAssembler:
                     new_cut_intervals[matrix_bin] = (new_name, cut_start, cut_end, extra)
                     if matrix_bin in id_list:
                         part_number += 1
-        # import ipdb;ipdb.set_trace()
+
         log.info("Splitting scaffolds using threshold = {}".format(self.missassembly_threshold))
         for idx in np.flatnonzero(zscore < self.missassembly_threshold):
             # split the scaffolds at this position
@@ -760,7 +753,7 @@ class HiCAssembler:
         log.info("{} misassemblies were removed".format(len(np.flatnonzero(zscore < -1.64))))
 
     def plot_matrix(self, filename, title='Assembly results',
-                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None, shuffle_scaffolds=False):
+                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None):
         '''
         Plots the resolved paths on a matrix
 
@@ -773,9 +766,6 @@ class HiCAssembler:
         add_vlines
         vmax
         vmin
-        shuffle_scaffolds Set to true to randomly shuffle the scaffolds. This is useful when plotting the
-                           before assembly matrix and the after remove mis-assemblies to visually separate scaffolds.
-
 
         Returns
         -------
@@ -788,14 +778,7 @@ class HiCAssembler:
 
         fig = plt.figure(figsize=(10,10))
         hic = self.reorder_matrix()
-
         chrbin_boundaries = hic.chrBinBoundaries
-        # if shuffle_scaffolds:
-        #     log.debug("Scaffolds are being shuffled for printing matrix")
-        #     new_scaff_order = chrbin_boundaries.keys()
-        #     np.random.shuffle(new_scaff_order)
-        #     hic.reorderChromosomes(new_scaff_order)
-        #     chrbin_boundaries = hic.chrBinBoundaries
 
         axHeat2 = fig.add_subplot(111)
         axHeat2.set_title(title)
@@ -831,7 +814,6 @@ class HiCAssembler:
         log.debug("saving matrix {}".format(filename))
         plt.savefig(filename, dpi=300)
         plt.close()
-
 
     def remove_noise_from_matrix(self):
         """
@@ -894,13 +876,21 @@ class HiCAssembler:
 
         return super_scaffolds
 
-    def reorder_matrix(self, shuffle_scaffolds=False):
+    def reorder_matrix(self):
         """
         Reorders the matrix using the assembled paths
 
         Returns
         -------
         """
+        import re
+
+        def sorted_nicely(list_to_order):
+            """ Sort the given iterable in the way that humans expect."""
+            convert = lambda text: int(text) if text.isdigit() else text
+            alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
+            return sorted(list_to_order, key=alphanum_key)
+
         log.debug("reordering matrix")
         hic = copy.deepcopy(self.scaffolds_graph.hic)
         order_list = []
@@ -908,25 +898,30 @@ class HiCAssembler:
         scaff_boundaries = OrderedDict()
         start_bin = 0
         end_bin = 0
-        path_list_test = {}
-        for idx, scaff_path in enumerate(self.scaffolds_graph.scaffold.get_all_paths()):
-            path_list_test[idx] = []
-            for scaffold_name in scaff_path:
-                bin_path = self.scaffolds_graph.scaffold.node[scaffold_name]['path']
-                order_list.extend(bin_path)
-                path_list_test[idx].extend(bin_path)
-                end_bin += len(bin_path)
 
-            assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
-            scaff_boundaries["scaff_{}".format(idx)] = (start_bin, end_bin)
-            start_bin = end_bin
+        # check if scaffolds are already merged, and if not
+        # sort the names alphanumerically.
+        if self.scaffolds_graph.scaffold.path == {}:
+            scaffold_order = sorted_nicely(list([x for x in self.scaffolds_graph.scaffold]))
+            hic.reorderChromosomes(scaffold_order)
+            hic.chromosomeBinBoundaries = hic.chrBinBoundaries
+        else:
+            path_list_test = {}
+            for idx, scaff_path in enumerate(self.scaffolds_graph.scaffold.get_all_paths()):
+                path_list_test[idx] = []
+                for scaffold_name in scaff_path:
+                    bin_path = self.scaffolds_graph.scaffold.node[scaffold_name]['path']
+                    order_list.extend(bin_path)
+                    path_list_test[idx].extend(bin_path)
+                    end_bin += len(bin_path)
 
-        hic.reorderBins(order_list)
-        hic.chromosomeBinBoundaries = scaff_boundaries
+                assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
+                scaff_boundaries["scaff_{}".format(idx)] = (start_bin, end_bin)
+                start_bin = end_bin
+
+            hic.reorderBins(order_list)
+            hic.chromosomeBinBoundaries = scaff_boundaries
         return hic
-
-        #contig, start, end, cov = zip(*self.scaffolds_graph.hic.cut_intervals)
-        #self.scaffolds_graph.hic.cut_intervals = zip(name_list, start, end, cov)
 
     def get_nearest_neighbors_2(self, paths, min_neigh=1, trans=True, threshold=0,
                                 max_int=None):

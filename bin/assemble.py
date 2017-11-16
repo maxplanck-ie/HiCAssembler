@@ -76,6 +76,11 @@ def parse_arguments(args=None):
                         type=float,
                         default=-1)
 
+    parser.add_argument('--split_positions_file',
+                        help='BED file. If the location of some mis-assemblies are known, they can be provided on a '
+                             'bed file to be splitted.',
+                        required=False)
+
     return parser.parse_args(args)
 
 
@@ -195,7 +200,8 @@ def main(args):
                                         min_scaffold_length=args.min_scaffold_length,
                                         matrix_bin_size=args.bin_size,
                                         num_processors=args.num_processors,
-                                        misassembly_zscore_threshold=args.misassembly_zscore_threshold)
+                                        misassembly_zscore_threshold=args.misassembly_zscore_threshold,
+                                        split_positions_file=args.split_positions_file)
 
     super_contigs = assembl.assemble_contigs()
     save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)

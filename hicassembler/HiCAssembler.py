@@ -161,7 +161,7 @@ class HiCAssembler:
             self.N50.append(n50)
 
             # the first iteration is is more stringent
-            if iteration < 4:
+            if iteration < 2:
                 target_size = int(min(2e6, self.scaffolds_graph.paths_min * (iteration + 1)))
                 log.debug("Merging small bins in larger bins of size {} bp".format(target_size))
                 self.scaffolds_graph.split_and_merge_contigs(num_splits=3,
@@ -171,7 +171,7 @@ class HiCAssembler:
                 if iteration == 1:
                     conf_score = stats[2]['median']
                 else:
-                    conf_score = stats[2]['median']
+                    conf_score = stats[2]['median'] * (1.0 / (iteration + 1))
 
                 log.debug("Confidence score set to {}".format(conf_score))
 

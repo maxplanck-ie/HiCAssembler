@@ -1551,6 +1551,7 @@ class Scaffolds(object):
                       \
                        --e--f
 
+        After the computation of the maximum spaning tree, hubs are resolved and paths are merged
 
         >>> cut_intervals = [('a', 0, 1, 1), ('b', 1, 2, 1), ('c', 2, 3, 1),
         ... ('d', 0, 1, 1), ('e', 1, 2, 1), ('f', 0, 1, 1)]
@@ -1653,8 +1654,11 @@ class Scaffolds(object):
 
         self.matrix = matrix
         nxG = self.make_nx_graph()
+        nx.write_graphml(nxG, "{}/ice_mst_pre_mst{}.graphml".format(self.out_folder, self.matrix.shape[0]))
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
+        log.debug("saving maximum spanning tree network {}/ice_mst_{}.graphml".format(self.out_folder,
+                                                                                      self.matrix.shape[0]))
         nx.write_graphml(nxG, "{}/ice_mst_{}.graphml".format(self.out_folder, self.matrix.shape[0]))
         degree = np.array(dict(nxG.degree()).values())
         if len(degree[degree > 2]):
@@ -1829,16 +1833,28 @@ class Scaffolds(object):
         node_degree_mst = dict(G.degree(G.node.keys()))
         for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k, v): v, reverse=True):
             if degree > 2:
+                # check if node already is inside a path
+                if len(self.pg_base.adj[node]) == 2:
+                    # this could indicate a problematic case
+                    log.info("Hub node is alredy inside a path {}".format(node))
                 adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
                 # remove the weakest edges but only if either of the nodes is not a hub
                 for adj_node, attr in adj[:-2]:
-                    log.debug("Removing weak edge {}-{} weight: {}".format(node, adj_node, attr['weight']))
+                    if len(G.adj[adj_node]) > 3:
+                        # adj node is hub. It this case remove the node from the graph
+
+                        self.delete_edge_from_matrix_bins(node)
+                    log.debug("Removing weak edge {}-{} weight: {}".format(G.node[node]['name'],
+                                                                           G.node[adj_node]['name'],
+                                                                           attr['weight']))
                     G.remove_edge(node, adj_node)
             if degree <= 2:
                 break
 
         # now, the G graph should contain only paths
         for path in Scaffolds._return_paths_from_graph(G):
+            named_path = [G.node[node]['name'] for node in path]
+            log.debug("path to add: {}".format(named_path))
             self.add_path(path)
 
         # for u, v, data in sorted(G.edges(data=True), key=lambda x: x[2]['weight'], reverse=True):
@@ -2572,6 +2588,7 @@ class Scaffolds(object):
 
 class ScaffoldException(Exception):
         """Base class for exceptions in Scaffold."""
+
 
 def get_test_matrix(cut_intervals=None, matrix=None):
     hic = HiCMatrix.hiCMatrix()

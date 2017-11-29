@@ -55,8 +55,9 @@ def timeit(fn):
 class HiCAssembler:
     def __init__(self, hic_file_name, fasta_file, out_folder,
                  min_mad=MIN_MAD, max_mad=MAX_MAD, split_misassemblies=True,
+                 split_positions_file=None,
                  min_scaffold_length=MIN_LENGTH, matrix_bin_size=25000, use_log=False,
-                 num_processors=5):
+                 num_processors=5, misassembly_zscore_threshold=ZSCORE_THRESHOLD):
         """
         Prepares a hic matrix for assembly.
         It is expected that initial contigs or scaffolds contain bins
@@ -90,32 +91,24 @@ class HiCAssembler:
         else:
             log.info("Loading Hi-C matrix ... ")
             # check if a lower resolution matrix is available
-            merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"
-            # check if the computation for the misassembly score was already done
+            merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"            # check if
             if os.path.isfile(merged_bins_matrix_file):
                 log.info("Found reduced matrix file {}".format(merged_bins_matrix_file))
                 self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
             else:
                 self.hic = HiCMatrix.hiCMatrix(hic_file_name)
-                log.info("Finish")
+                log.info("Merging bins of file to reduce resolution")
                 binsize = self.hic.getBinSize()
                 if binsize < matrix_bin_size:
                     # make an smaller matrix having bins of around 25.000 bp
                     num_bins = matrix_bin_size / binsize
 
                     from hicexplorer.hicMergeMatrixBins import merge_bins
-                    log.info("Reducing matrix size to 25.000 bp (number of bins merged: {})".format(num_bins))
+                    log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
                     self.hic = merge_bins(self.hic, num_bins)
-                # remove empty bins
-                self.hic.maskBins(self.hic.nan_bins)
-                try:
-                    del self.hic.orig_bin_ids
-                    del self.hic.orig_cut_intervals
-                    self.hic.correction_factors = None
-                except:
-                    pass
 
                 self.hic.save(merged_bins_matrix_file)
+                self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
 
         if use_log:
             self.hic.matrix.data = np.log1p(self.hic.matrix.data)
@@ -124,18 +117,25 @@ class HiCAssembler:
         self.max_mad = max_mad
         self.min_scaffold_length = min_scaffold_length
         self.num_processors = num_processors
+        self.misassembly_threshold = misassembly_zscore_threshold
         self.merged_paths = None
         self.iteration = 0
 
         #self.remove_noise_from_matrix()
 
-        if split_misassemblies:
-            # try to find contigs that probably should be separated
-            self.split_misassemblies(hic_file_name)
-
         # build scaffolds graph. Bins on the same contig are
         # put together into a path (a type of graph with max degree = 2)
-        self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic))
+        self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
+
+        self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly")
+        if split_misassemblies:
+            # try to find contigs that probably should be separated
+            self.split_misassemblies(hic_file_name, split_positions_file)
+            # build scaffolds graph. Bins on the same contig are
+            # put together into a path (a type of graph with max degree = 2)
+            self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
+            self.plot_matrix(self.out_folder + "/after_split_assembly.pdf",
+                             title="After split mis-assemblies assembly", add_vlines=True)
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
@@ -151,9 +151,9 @@ class HiCAssembler:
         -------
 
         """
-        self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly")
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(5):
+        for iteration in range(4):
+            self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
 
@@ -162,29 +162,33 @@ class HiCAssembler:
 
             # the first iteration is is more stringent
             if iteration < 2:
-
-                self.scaffolds_graph.split_and_merge_contigs(num_splits=2, target_size=(self.min_scaffold_length * (iteration + 1)), normalize_method='ice')
+                target_size = int(min(2e6, self.scaffolds_graph.paths_min * (iteration + 1)))
+                log.debug("Merging small bins in larger bins of size {} bp".format(target_size))
+                self.scaffolds_graph.split_and_merge_contigs(num_splits=3,
+                                                             target_size=target_size,
+                                                             normalize_method='ice')
                 stats = self.scaffolds_graph.get_stats_per_split()
-                conf_score = stats[2]['median']
-                log.debug("Confidence score set to {}".format(conf_score))
+                if iteration == 1:
+                    conf_score = stats[2]['median']
+                else:
+                    conf_score = stats[2]['median'] * (1.0 / (iteration + 1))
 
-                # self.scaffolds_graph.split_and_merge_contigs(num_splits=2, normalize_method='ice')
-                # conf_score = np.percentile(self.scaffolds_graph.matrix.data, 30)
+                log.debug("Confidence score set to {}".format(conf_score))
 
             else:
                 # self.scaffolds_graph.split_and_merge_contigs(num_splits=1, target_size=int(1e6),
                 #                                              normalize_method='ice')
                 self.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='ice')
                 conf_score = np.percentile(self.scaffolds_graph.matrix.data, 30)
+                log.info("Confidence score set to: {}".format(conf_score))
 
-            log.info("Confidence score set to: {}".format(conf_score))
             self.scaffolds_graph.join_paths_max_span_tree(conf_score, node_degree_threshold=2e3,
                                                           hub_solving_method='remove weakest')
 
             if iteration == 0:
-#                self.scaffolds_graph.remove_small_paths(self.min_scaffold_length * 3)
-                self.scaffolds_graph.remove_small_paths(300000, split_scaffolds=True)
-            self.plot_matrix(self.out_folder + "/after_assembly_{}.pdf".format(iteration), title="After assembly", add_vlines=True)
+                self.scaffolds_graph.remove_small_paths(self.min_scaffold_length, split_scaffolds=True)
+            self.plot_matrix(self.out_folder + "/after_assembly_{}.pdf".format(iteration),
+                             title="Assembly iteration {}".format(iteration), add_vlines=True)
 
         before_assembly_length, before_num_paths = self.scaffolds_graph.get_assembly_length()
 
@@ -383,6 +387,7 @@ class HiCAssembler:
 
         Returns
         -------
+        path list, where each path has the backbone as the first element
 
         Examples
         --------
@@ -657,28 +662,48 @@ class HiCAssembler:
 
         return
 
-    def split_misassemblies(self, hic_file_name):
+    def split_misassemblies(self, hic_file_name, split_positions_file=None):
         """
         Mis assemblies are commonly found in the data. To remove them, we use
         a simple metric to identify empty contacts.
+
+        Parameters
+        ----------
+        hic_file_name : Name of the file
 
         Returns
         -------
 
         """
         log.info("Detecting misassemblies")
-        ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=False)
+
         tad_score_file = self.out_folder + "/misassembly_score.txt"
-        reduced_matrix_file = self.out_folder + "/hic_reduced_matrix.h5"
+        zscore_matrix_file = self.out_folder + "/zscore_matrix.h5"
         # check if the computation for the misassembly score was already done
-        if not os.path.isfile(tad_score_file):
-            ft.compute_spectra_matrix()
+        if not os.path.isfile(tad_score_file) or not os.path.isfile(zscore_matrix_file):
+            ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=False)
+            # adjust window sizes to compute misassembly score (aka tad-score)
+            ft.max_depth = max(800000, ft.binsize * 500)
+            ft.min_depth = min(200000, ft.binsize * 200)
+            ft.step = ft.binsize * 50
+            log.debug("zscore window sizes set by hicassembler: ")
+            log.debug("max depth:\t{}".format(ft.max_depth))
+            log.debug("min depth:\t{}".format(ft.min_depth))
+            log.debug("step:\t{}".format(ft.step))
+            log.debug("bin size:\t{}".format(ft.binsize))
+
+            ft.hic_ma.matrix.data = np.log1p(ft.hic_ma.matrix.data)
+            ft.hic_ma.matrix = ft.hic_ma.convert_to_obs_exp_matrix(perchr=True)
+            ft.hic_ma.matrix.data = np.log2(ft.hic_ma.matrix.data)
+            ft.compute_spectra_matrix(perchr=True)
             ft.save_bedgraph_matrix(tad_score_file)
-            ft.hic_ma.save(reduced_matrix_file)
-        else:
-            log.info("Using previously computed scores: {}\t{}".format(tad_score_file, reduced_matrix_file))
-            ft.hic_ma = HiCMatrix.hiCMatrix(reduced_matrix_file)
-            ft.load_bedgraph_matrix(tad_score_file)
+            ft.hic_ma.save(zscore_matrix_file)
+
+        log.info("Using previously computed scores: {}\t{}".format(tad_score_file, zscore_matrix_file))
+        # TODO here the hic_file is loaded unnecesarily. A way to remove this step would be good
+        ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=False)
+        ft.hic_ma = HiCMatrix.hiCMatrix(zscore_matrix_file)
+        ft.load_bedgraph_matrix(tad_score_file)
         ft.find_boundaries()
 
         tuple_ = []
@@ -693,54 +718,81 @@ class HiCAssembler:
         tad_score = np.array(tad_score)
         # compute a zscore of the tad_score to select the lowest ranking boundaries.
         zscore = (tad_score - np.mean(tad_score)) / np.std(tad_score)
-        new_cut_intervals = self.hic.cut_intervals[:]
 
         # select as misassemblies all boundaries that have a zscore lower than 1.64 (p-value 0.05)
-        prev_scaff = None
-        bin_ids = []
+        bin_ids = {}
 
-        def rename_cut_intervals(id_list, scaff_name):
+        log.info("Splitting scaffolds using threshold = {}".format(self.misassembly_threshold))
+        for idx in np.flatnonzero(zscore < self.misassembly_threshold):
+            # find the bins that overlap with the misassembly
+            if scaffold[idx] not in bin_ids:
+                bin_ids[scaffold[idx]] = []
+            to_split_intervals = sorted(self.hic.interval_trees[scaffold[idx]][start[idx]:end[idx]])
+            bin_ids[scaffold[idx]].extend(sorted([interval_bin.data for interval_bin in to_split_intervals]))
+
+        if split_positions_file is not None:
+            log.debug("loading positions to split")
+            from hicexplorer import readBed
+
+            bed_file_h = readBed.ReadBed(open(split_positions_file, 'r'))
+            for bed in bed_file_h:
+                # find the bins that overlap with the misassembly
+                if bed.chromosome not in self.hic.interval_trees:
+                    continue
+                if bed.chromosome not in bin_ids:
+                    bin_ids[bed.chromosome] = []
+                to_split_intervals = sorted(self.hic.interval_trees[bed.chromosome][bed.start:bed.end])
+                bin_ids[bed.chromosome].extend(sorted([interval_bin.data for interval_bin in to_split_intervals]))
+
+        # rename cut intervals
+        num_removed_misassemblies = 0
+        new_cut_intervals = self.hic.cut_intervals[:]
+        for scaff_name in bin_ids:
             scaff_bins = self.hic.getChrBinRange(scaff_name)
             # remove splits at the start or end of chromosome as they are most likely
             # false positives
-            id_list = sorted([x for x in id_list if x not in [scaff_bins[0], scaff_bins[1] - 1]])
+            id_list = set(sorted([x for x in bin_ids[scaff_name] if x not in [scaff_bins[0], scaff_bins[1] - 1]]))
             part_number = 1
             if len(id_list) > 0:
-                log.info("Removing misassemblies for {} ".format(scaff_name))
+                log.info("Removing {} misassemblies for {} ".format(len(id_list), scaff_name))
                 for matrix_bin in range(scaff_bins[0], scaff_bins[1]):
                     name, cut_start, cut_end, extra = new_cut_intervals[matrix_bin]
                     new_name = "{}/{}".format(name, part_number)
                     new_cut_intervals[matrix_bin] = (new_name, cut_start, cut_end, extra)
                     if matrix_bin in id_list:
                         part_number += 1
-
-        for idx in np.flatnonzero(zscore < ZSCORE_THRESHOLD):
-            # split the scaffolds at this position
-            if prev_scaff is not None and scaffold[idx] != prev_scaff:
-                rename_cut_intervals(bin_ids, prev_scaff)
-                bin_ids = []
-            # find the bins that overlap with the misassembly
-            if scaffold[idx] not in self.hic.interval_trees:
-                continue
-            to_split_intervals = sorted(self.hic.interval_trees[scaffold[idx]][start[idx]:end[idx]])
-            bin_ids.extend(sorted([interval_bin.data for interval_bin in to_split_intervals]))
-            prev_scaff = scaffold[idx]
-
-        if prev_scaff is not None:
-            rename_cut_intervals(bin_ids, prev_scaff)
+                        num_removed_misassemblies += 1
 
         self.hic.setCutIntervals(new_cut_intervals)
-        log.info("{} misassemblies were removed".format(len(np.flatnonzero(zscore < -1.64))))
+        log.info("{} misassemblies were removed".format(num_removed_misassemblies))
 
     def plot_matrix(self, filename, title='Assembly results',
                     cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None):
+        """
+        Plots the resolved paths on a matrix
+
+        Parameters
+        ----------
+        filename
+        title
+        cmap
+        log1p
+        add_vlines
+        vmax
+        vmin
+
+        Returns
+        -------
+        None
+        """
 
         log.debug("plotting matrix")
         import matplotlib.pyplot as plt
         from matplotlib.colors import LogNorm
 
-        fig = plt.figure(figsize=(10,10))
+        fig = plt.figure(figsize=(10, 10))
         hic = self.reorder_matrix()
+        chrbin_boundaries = hic.chrBinBoundaries
 
         axHeat2 = fig.add_subplot(111)
         axHeat2.set_title(title)
@@ -759,25 +811,23 @@ class HiCAssembler:
         cbar = fig.colorbar(img3, cax=cax)
         cbar.solids.set_edgecolor("face")  # to avoid white lines in the color bar in pdf plots
 
-        chrbin_boundaries = hic.chrBinBoundaries
         ticks = [pos[0] for pos in chrbin_boundaries.values()]
         labels = chrbin_boundaries.keys()
         axHeat2.set_xticks(ticks)
-        if len(labels) <= 20:
-            axHeat2.set_xticklabels(labels, size=8)
-        elif 40 > len(labels) > 20:
-            axHeat2.set_xticklabels(labels, size=4, rotation=90)
+        if len(labels) < 40:
+            axHeat2.set_xticklabels(labels, size=3, rotation=90)
         else:
-            axHeat2.set_xticklabels(labels, size=2, rotation=90)
+            axHeat2.set_xticklabels(labels, size=1, rotation=90)
 
         if add_vlines:
             # add lines to demarcate 'super scaffolds'
             vlines = [x[0] for x in hic.chromosomeBinBoundaries.values()]
-            axHeat2.vlines(vlines, 1, ma.shape[0], linewidth=0.5)
+            axHeat2.vlines(vlines, 1, ma.shape[0], linewidth=0.1)
             axHeat2.set_ylim(ma.shape[0], 0)
         axHeat2.get_yaxis().set_visible(False)
         log.debug("saving matrix {}".format(filename))
         plt.savefig(filename, dpi=300)
+        plt.close()
 
     def remove_noise_from_matrix(self):
         """
@@ -843,9 +893,18 @@ class HiCAssembler:
     def reorder_matrix(self):
         """
         Reorders the matrix using the assembled paths
+
         Returns
         -------
         """
+        import re
+
+        def sorted_nicely(list_to_order):
+            """ Sort the given iterable in the way that humans expect."""
+            convert = lambda text: int(text) if text.isdigit() else text
+            alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
+            return sorted(list_to_order, key=alphanum_key)
+
         log.debug("reordering matrix")
         hic = copy.deepcopy(self.scaffolds_graph.hic)
         order_list = []
@@ -853,111 +912,30 @@ class HiCAssembler:
         scaff_boundaries = OrderedDict()
         start_bin = 0
         end_bin = 0
-        path_list_test = {}
-        for idx, scaff_path in enumerate(self.scaffolds_graph.scaffold.get_all_paths()):
-            path_list_test[idx] = []
-            for scaffold_name in scaff_path:
-                bin_path = self.scaffolds_graph.scaffold.node[scaffold_name]['path']
-                order_list.extend(bin_path)
-                path_list_test[idx].extend(bin_path)
-                end_bin += len(bin_path)
 
-            assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
-            scaff_boundaries["scaff_{}".format(idx)] = (start_bin, end_bin)
-            start_bin = end_bin
+        # check if scaffolds are already merged, and if not
+        # sort the names alphanumerically.
+        if self.scaffolds_graph.scaffold.path == {}:
+            scaffold_order = sorted_nicely(list([x for x in self.scaffolds_graph.scaffold]))
+            hic.reorderChromosomes(scaffold_order)
+            hic.chromosomeBinBoundaries = hic.chrBinBoundaries
+        else:
+            path_list_test = {}
+            for idx, scaff_path in enumerate(self.scaffolds_graph.scaffold.get_all_paths()):
+                path_list_test[idx] = []
+                for scaffold_name in scaff_path:
+                    bin_path = self.scaffolds_graph.scaffold.node[scaffold_name]['path']
+                    order_list.extend(bin_path)
+                    path_list_test[idx].extend(bin_path)
+                    end_bin += len(bin_path)
 
-        hic.reorderBins(order_list)
-        hic.chromosomeBinBoundaries = scaff_boundaries
+                assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
+                scaff_boundaries["scaff_{}".format(idx)] = (start_bin, end_bin)
+                start_bin = end_bin
+
+            hic.reorderBins(order_list)
+            hic.chromosomeBinBoundaries = scaff_boundaries
         return hic
-
-        #contig, start, end, cov = zip(*self.scaffolds_graph.hic.cut_intervals)
-        #self.scaffolds_graph.hic.cut_intervals = zip(name_list, start, end, cov)
-
-    def reduce_to_flanks_and_center(self, flank_length=20000):
-        """
-        removes the contigs that are inside of a path keeping only the
-        flanking contigs up to the specified `flank_length`. The length
-        of the contigs left at the flanks tries to be close to the
-        flank_length argument. The purpose of this is to identify the orientation
-        of a scaffold/contig by focusing on the sides.
-
-        Parameters
-        ----------
-        flank_length : in bp
-
-        Returns
-        -------
-        """
-        log.info("reduce to flanks and center. flank_length: {}".format(flank_length))
-
-        # flattened list of merged_paths  e.g [[1,2],[3,4],[5,6],[7,8]].
-        # This is in contrast to a list containing flanks_of_path that may
-        # look like [ [[1,2],[3,4]], [[5,6]] ]
-        paths_flatten = []
-
-        # list to keep the id of the new flanks_of_path after they
-        # are merged. For example, for a flanks_of_path list e.g. [[0,1], [2,3]]]
-        # after merging (that is matrix merging of the respective bins e.g 0 and 1)
-        # the [0,1] becomes bin [0] and [2,3] becomes bin 1. Thus, merged_paths_id_map
-        # has the value [[0,1]]. Further merged paths are appended as new lists
-        # eg [[0,1], [2,3] .. etc. ]
-        merged_paths_id_map = []
-        i = 0
-        contig_len = self.scaffolds_graph.get_contigs_length()
-        for path in self.scaffolds_graph.get_all_paths():
-            flanks_of_path = HiCAssembler.get_flanks(path, flank_length, contig_len, 6)
-            if self.iteration > 1:
-                # skip short paths after iteration 1
-                if sum(contig_len[HiCAssembler.flatten_list(flanks_of_path)]) < flank_length*0.3:
-                    continue
-            merged_paths_id_map.append(range(i, len(flanks_of_path)+i))
-            i += len(flanks_of_path)
-            paths_flatten.extend(flanks_of_path)
-
-#            print "in {} out {} ".format(path, flanks_of_path)
-        if len(paths_flatten) == 0:
-            print "[{}] Nothing to reduce.".format(inspect.stack()[0][3])
-            return None, None
-
-        reduce_paths = paths_flatten[:]
-        # the matrix is to be reduced
-        # but all original rows should be referenced
-        # that is why i append the to remove to the
-        # reduce_paths
-        self.matrix = reduce_matrix(self.matrix, reduce_paths).tolil()
-        if len(reduce_paths) < 2:
-            log.info("Reduce paths to small {}. Returning".format(len(reduce_paths)))
-            return None, None
-        try:
-            start_time = time.time()
-            self.cmatrix = iterativeCorrection(self.matrix, M=30, verbose=True)[0]
-            elapsed_time = time.time() - start_time
-            log.debug("time iterative_correction: {:.5f}".format(elapsed_time))
-
-            # put a high value to all edges belonging to an original path
-            max_int = self.cmatrix.data.max()+1
-        except:
-            log.info("Reduce matrix is empty. Returning".format(len(reduce_paths)))
-            return None, None
-
-        self.cmatrix = self.cmatrix.tolil()
-        for path in merged_paths_id_map:
-            if len(path) > 1:
-                # take pairs and replace the respective value
-                # in the matrix by the masx int
-#                import pdb;pdb.set_trace()
-                for idx in range(len(path)-1):
-                    # doing [(idx,idx+1),(idx+1,idx)]
-                    # to keep the symmetry of the matrix.
-                    # i.e. adding [1,2] and [2,1]
-                    for c,d in [(idx,idx+1),(idx+1,idx)]:
-#                        print "adding {},{}={}".format(path[c], path[d], max_int)
-                        self.cmatrix[path[c], path[d]] = max_int
-        self.cmatrix=self.cmatrix.tocsr()
-        self.paths = paths_flatten
-        self.merged_paths = merged_paths_id_map
-
-        return max_int
 
     def get_nearest_neighbors_2(self, paths, min_neigh=1, trans=True, threshold=0,
                                 max_int=None):

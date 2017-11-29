@@ -85,8 +85,8 @@ class PathGraph(object):
 
         Returns
         -------
-        adj_dict : dictionary
-           The adjacency dictionary for nodes connected to n.
+        adj_list : list
+           The adjacency list for nodes connected to n.
 
         Notes
         -----

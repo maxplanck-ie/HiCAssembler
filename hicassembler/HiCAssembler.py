@@ -152,7 +152,7 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(4):
+        for iteration in range(2):
             self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
@@ -161,7 +161,7 @@ class HiCAssembler:
             self.N50.append(n50)
 
             # the first iteration is is more stringent
-            if iteration < 2:
+            if iteration < 4:
                 target_size = int(min(2e6, self.scaffolds_graph.paths_min * (iteration + 1)))
                 log.debug("Merging small bins in larger bins of size {} bp".format(target_size))
                 self.scaffolds_graph.split_and_merge_contigs(num_splits=3,
@@ -569,27 +569,35 @@ class HiCAssembler:
 
         # 1. Identify branches
 
-        # delete backbone nodes that are not adjacent to a removed scaffold
+        # delete backbone nodes that are not adjacent to a removed scaffold (removed scaffolds are those
+        # small contig/scaffolds removed at the begining that are stores in the self.scaffolds_graph.remove_scaffolds.
+        # Basically, all so called backbone nodes that are not connected to the scaffolds that we want to put back
+        # are deleted.
         for node_id in self.scaffolds_graph.scaffold.node.keys():
             # check that the backbone node is not adjacent to a removed node.
             if len(set(nxG.adj[node_id].keys()).intersection(self.scaffolds_graph.removed_scaffolds.node.keys())) == 0:
                 nxG.remove_node(node_id)
 
-        # remove backbone edges
+        # remove backbone edges. That is, if there is some edge between two backbone nodes, this is removed (see
+        # example on the docstring).
         for u, v in list(nxG.edges()):
             if 'is_backbone' in nxG.node[u] and 'is_backbone' in nxG.node[v]:
                 nxG.remove_edge(u, v)
 
+        # now each connected component should only have  a backbone node
+        # and all the connected scaffolds that belong to that node.
         for branch in list(nx.connected_component_subgraphs(nxG)):
             if len(branch) > 10:
-                log.info("Skipping the insertion of a branch of length: {}".format(len(branch)))
+                log.info("Skipping the insertion of a branch that is too long. "
+                         "The length of the branch is: {} (threshold is 10)".format(len(branch)))
                 continue
-            # afer removing the hubs the branch may contain several connected components. Only the component
+            # after removing the hubs the branch may contain several connected components. Only the component
             # that contains a backbone node is used.
             backbone_list = HiCAssembler._find_backbone_node(branch)
 
             if len(backbone_list) == 0:
                 log.debug("No backbone found for branch with nodes: {}".format(branch.node.keys()))
+                continue
 
             # each branch should contain only one backbone node
             if len(backbone_list) > 1:

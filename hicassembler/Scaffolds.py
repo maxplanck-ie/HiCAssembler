@@ -1608,7 +1608,20 @@ class Scaffolds(object):
         >>> list(S.get_all_paths())
         [[0], [1], [2, 3, 4, 5]]
 
-        >>> S.matrix.todense()
+
+        Links from nodes inside an established path are removed before computing the mst
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
+        >>> S = Scaffolds(hic)
+        >>> S.split_and_merge_contigs(normalize_method=None)
+
+        Add path joining a, b, and c. Before the computation of the max. spanning tree the links of 'b'
+        are removed as this node is not a flanking node of the path. Because of this, the edge between
+        'd' and 'e' will be kept during the mst forming a complete path from a to f.
+        >>> S.add_path([0, 1, 2])
+        >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
+        ... node_degree_threshold=4)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2, 3, 4, 5]]
 
         """
         matrix = self.matrix.copy()
@@ -1617,6 +1630,13 @@ class Scaffolds(object):
             matrix.data[matrix.data <= confidence_score] = 0
         matrix.setdiag(0)
         matrix.eliminate_zeros()
+
+        # remove all contacts that are within paths
+        paths = self.get_all_paths(pg_base=True)
+        to_remove = []
+        for path in paths:
+            if len(path) > 3:
+                to_remove.extend(path[1:-1])
 
         # get the node degree from the source  matrix.
         node_degree = dict([(x, matrix[x, :].nnz) for x in range(matrix.shape[0])])
@@ -1644,6 +1664,8 @@ class Scaffolds(object):
 
                     to_remove.append(node)
 
+        to_remove = np.unique(to_remove)
+        if len(to_remove) > 0:
             self.matrix[to_remove, :] = 0
             self.matrix[:, to_remove] = 0
             matrix[to_remove, :] = 0
@@ -1653,6 +1675,11 @@ class Scaffolds(object):
             self.matrix.eliminate_zeros()
 
         self.matrix = matrix
+
+        if len(self.matrix.data) == 0:
+            # if matrix is empty after removing intra-path contacts
+            # then nothing is left to do.
+            return
         nxG = self.make_nx_graph()
         nx.write_graphml(nxG, "{}/ice_mst_pre_mst{}.graphml".format(self.out_folder, self.matrix.shape[0]))
         # compute maximum spanning tree
@@ -1853,8 +1880,6 @@ class Scaffolds(object):
 
         # now, the G graph should contain only paths
         for path in Scaffolds._return_paths_from_graph(G):
-            named_path = [G.node[node]['name'] for node in path]
-            log.debug("path to add: {}".format(named_path))
             self.add_path(path)
 
         # for u, v, data in sorted(G.edges(data=True), key=lambda x: x[2]['weight'], reverse=True):

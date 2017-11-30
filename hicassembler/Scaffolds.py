@@ -1608,7 +1608,20 @@ class Scaffolds(object):
         >>> list(S.get_all_paths())
         [[0], [1], [2, 3, 4, 5]]
 
-        >>> S.matrix.todense()
+
+        Links from nodes inside an established path are removed before computing the mst
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
+        >>> S = Scaffolds(hic)
+        >>> S.split_and_merge_contigs(normalize_method=None)
+
+        Add path joining a, b, and c. Before the computation of the max. spanning tree the links of 'b'
+        are removed as this node is not a flanking node of the path. Because of this, the edge between
+        'd' and 'e' will be kept during the mst forming a complete path from a to f.
+        >>> S.add_path([0, 1, 2])
+        >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
+        ... node_degree_threshold=4)
+        >>> list(S.get_all_paths())
+        [[0, 1, 2, 3, 4, 5]]
 
         """
         matrix = self.matrix.copy()
@@ -1624,140 +1637,6 @@ class Scaffolds(object):
         for path in paths:
             if len(path) > 3:
                 to_remove.extend(path[1:-1])
-
-
-        if len(to_remove) > 0:
-            self.matrix[to_remove, :] = 0
-            self.matrix[:, to_remove] = 0
-            matrix[to_remove, :] = 0
-            matrix[:, to_remove] = 0
-
-            matrix.eliminate_zeros()
-            self.matrix.eliminate_zeros()
-
-        self.matrix = matrix
-
-        if len(self.matrix.data) == 0:
-            # if matrix is empty after removing intra-path contacts
-            # then nothing is left to do.
-            return
-        nxG = self.make_nx_graph()
-        nx.write_graphml(nxG, "{}/ice_mst_pre_mst{}.graphml".format(self.out_folder, self.matrix.shape[0]))
-        # compute maximum spanning tree
-        nxG = nx.maximum_spanning_tree(nxG, weight='weight')
-        log.debug("saving maximum spanning tree network {}/ice_mst_{}.graphml".format(self.out_folder,
-                                                                                      self.matrix.shape[0]))
-        nx.write_graphml(nxG, "{}/ice_mst_{}.graphml".format(self.out_folder, self.matrix.shape[0]))
-        degree = np.array(dict(nxG.degree()).values())
-        if len(degree[degree > 2]):
-            # count number of hubs
-            log.info("{} hubs were found".format(len(degree[degree>2])))
-
-        if hub_solving_method == 'remove weakest':
-            self._remove_weakest(nxG)
-        else:
-            log.debug("degree: {}".format(node_degree))
-            self._bandwidth_permute(nxG, node_degree, node_degree_threshold)
-
-    @logit
-    def join_paths_max_span_tree_bk(self, confidence_score,
-                                 hub_solving_method=['remove weakest', 'bandwidth permute'][0],
-                                 node_degree_threshold=None):
-        """
-        Uses the maximum spanning tree to identify paths to
-        merge
-
-        Parameters
-        ---------
-        confidence_score : Minimum contact threshold to consider. All other values are discarded
-        hub_solving_method : Either 'remove weakest' or 'bandwidth permutation'
-
-        Returns
-        -------
-
-        Examples
-        --------
-
-        The following matrix is used:
-
-                      ______
-                     |      |
-                 a---b---c--d
-                      \    /
-                       --e--f
-
-        The maximum spanning tree is:
-
-                 a---b---c--d
-                      \
-                       --e--f
-
-        After the computation of the maximum spaning tree, hubs are resolved and paths are merged
-
-        >>> cut_intervals = [('a', 0, 1, 1), ('b', 1, 2, 1), ('c', 2, 3, 1),
-        ... ('d', 0, 1, 1), ('e', 1, 2, 1), ('f', 0, 1, 1)]
-
-                                a  b  c  d  e  f
-        >>> matrix = np.array([[0, 3, 0, 0, 0, 0], # a
-        ...                    [0, 0, 3, 2, 2.5, 0], # b
-        ...                    [0, 0, 0, 3, 0, 0], # c
-        ...                    [0, 0, 0, 0, 1, 0], # d
-        ...                    [0, 0, 0, 0, 0, 3], # e
-        ...                    [0, 0, 0, 0, 0, 0]])# f
-
-        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
-        >>> S = Scaffolds(hic)
-        >>> S.split_and_merge_contigs(normalize_method=None)
-        >>> list(S.get_all_paths())
-        [[0], [1], [2], [3], [4], [5]]
-
-        The weakest link for the hub 'b' (b-e) is removed
-        >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=5)
-        >>> list(S.get_all_paths())
-        [[3, 2, 1, 0], [5, 4]]
-
-        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
-        >>> S = Scaffolds(hic)
-        >>> S.split_and_merge_contigs(normalize_method=None)
-
-        By setting the node_degree threshold to 3 the
-        'b' node (id 1) is skipped.
-        Thus, the path [0, 1, 2, 3] can not be formed.
-        but the path [2, 3, 4, 5] is formed
-        >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest',
-        ...                            node_degree_threshold=4)
-        >>> list(S.get_all_paths())
-        [[0], [1], [5, 4, 3, 2]]
-
-        Test bandwidth permutation
-        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
-        >>> S = Scaffolds(hic)
-        >>> S.split_and_merge_contigs(normalize_method=None)
-        >>> list(S.get_all_paths())
-        [[0], [1], [2], [3], [4], [5]]
-
-        >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
-        ... node_degree_threshold=5)
-        >>> list(S.get_all_paths())
-        [[0, 1, 2, 3, 4, 5]]
-
-        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
-        >>> S = Scaffolds(hic)
-        >>> S.split_and_merge_contigs(normalize_method=None)
-        >>> S.join_paths_max_span_tree(0, hub_solving_method='bandwidth permutation',
-        ... node_degree_threshold=4)
-        >>> list(S.get_all_paths())
-        [[0], [1], [2, 3, 4, 5]]
-
-        >>> S.matrix.todense()
-
-        """
-        matrix = self.matrix.copy()
-
-        if confidence_score is not None:
-            matrix.data[matrix.data <= confidence_score] = 0
-        matrix.setdiag(0)
-        matrix.eliminate_zeros()
 
         # get the node degree from the source  matrix.
         node_degree = dict([(x, matrix[x, :].nnz) for x in range(matrix.shape[0])])
@@ -1785,6 +1664,8 @@ class Scaffolds(object):
 
                     to_remove.append(node)
 
+        to_remove = np.unique(to_remove)
+        if len(to_remove) > 0:
             self.matrix[to_remove, :] = 0
             self.matrix[:, to_remove] = 0
             matrix[to_remove, :] = 0
@@ -1794,6 +1675,11 @@ class Scaffolds(object):
             self.matrix.eliminate_zeros()
 
         self.matrix = matrix
+
+        if len(self.matrix.data) == 0:
+            # if matrix is empty after removing intra-path contacts
+            # then nothing is left to do.
+            return
         nxG = self.make_nx_graph()
         nx.write_graphml(nxG, "{}/ice_mst_pre_mst{}.graphml".format(self.out_folder, self.matrix.shape[0]))
         # compute maximum spanning tree

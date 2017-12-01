@@ -167,7 +167,7 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
     nnn_seq = Seq('N'*200)
     for idx, super_c in enumerate(super_scaffolds):
         sequence = Seq("")
-        id = ["Super-scaffold_{} ".format(idx + 1)]
+        id = ["Super_scaffold_{} ".format(idx + 1)]
         for contig_id, start, end, strand in super_c:
             if strand == '-':
                 sequence += record_dict[contig_id][start:end].reverse_complement()

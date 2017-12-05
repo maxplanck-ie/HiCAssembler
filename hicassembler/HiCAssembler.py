@@ -152,7 +152,7 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(2):
+        for iteration in range(4):
             self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
@@ -168,10 +168,16 @@ class HiCAssembler:
                                                              target_size=target_size,
                                                              normalize_method='ice')
                 stats = self.scaffolds_graph.get_stats_per_split()
-                if iteration == 1:
-                    conf_score = stats[2]['median']
-                else:
-                    conf_score = stats[2]['median'] * (1.0 / (iteration + 1))
+                try:
+                    if iteration == 1:
+                        conf_score = stats[1]['median']
+                    else:
+                        conf_score = stats[1]['median'] * (1.0 / (iteration + 1))
+                # if the scaffolds are all very small, the get_stats_per_split
+                # many not have enough information to compute, thus a second
+                # method to identify confidence score is used
+                except KeyError:
+                    conf_score = np.percentile(self.scaffolds_graph.matrix.data, 5)
 
                 log.debug("Confidence score set to {}".format(conf_score))
 

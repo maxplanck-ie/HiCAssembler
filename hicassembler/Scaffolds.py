@@ -1632,8 +1632,8 @@ class Scaffolds(object):
         matrix.eliminate_zeros()
 
         # remove all contacts that are within paths
-        paths = self.get_all_paths(pg_base=True)
         to_remove = []
+        paths = self.get_all_paths(pg_base=True)
         for path in paths:
             if len(path) > 3:
                 to_remove.extend(path[1:-1])

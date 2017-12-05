@@ -146,6 +146,9 @@ def evaluate_super_contigs(super_contigs):
 
 def save_fasta(input_fasta, output_fasta, super_scaffolds):
     """
+    Takes the hic scaffolds information and the original fasta file
+    and merges the individual scaffolds sequences. All sequences that are
+    not part of the hic scaffolds are returned as well
 
     Parameters
     ----------
@@ -153,36 +156,62 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
     output_fasta
     super_scaffolds in the form of a list of list.
 
+
     Returns
     -------
 
-    >>> super_scaffolds = [[('scaffold_12958', '+')], [('scaffold_12942', '+')], [('scaffold_12728', '+')], [('scaffold_12723', '+'), ('scaffold_12963', '+'), ('scaffold_13246', '-'), ('scaffold_12822', '+'), ('scaffold_13047', '-'), ('scaffold_12855', '+')]]
-    >>> save_fasta("../virilis_assembly/data/dvir1.3.fa", "/tmp/test.fa", super_scaffolds)
+    >>> super_scaffolds = [[('scaffold_12472', 170267, 763072, '-'), ('scaffold_12932', 1529201, 1711857, '-'),
+    ... ('scaffold_12932', 1711857, 2102469, '-'), ('scaffold_12726', 1501564, 2840439, '-')],
+    ... [('scaffold_13042', 0, 239762, '-'), ('scaffold_12928', 0, 1142515, '-')]]
+    >>> save_fasta("../hicassembler/test/scaffolds_test.fa", "/tmp/test.fa", super_scaffolds)
     """
 
     from Bio import SeqIO
     from Bio.Seq import Seq
     record_dict = SeqIO.to_dict(SeqIO.parse(input_fasta, "fasta"))
     new_rec_list = []
-    nnn_seq = Seq('N'*200)
+    nnn_seq = Seq('N'*5000)
+    super_scaffolds_len = 0
+    seen = set([])
     for idx, super_c in enumerate(super_scaffolds):
         sequence = Seq("")
-        id = ["Super_scaffold_{} ".format(idx + 1)]
+        info = []
         for contig_id, start, end, strand in super_c:
             if strand == '-':
                 sequence += record_dict[contig_id][start:end].reverse_complement()
             else:
                 sequence += record_dict[contig_id][start:end]
             sequence += nnn_seq
-            id.append("{}_{}".format(contig_id, strand))
+            info.append("{contig}:{start}-{end}:{strand}".format(contig=contig_id,
+                                                               start=start, end=end,
+                                                               strand=strand))
+            seen.add(contig_id)
 
-        id = "_".join(id)
+        id = "hic_scaffold_{} ".format(idx + 1) + ",".join(info)
         sequence.id = id
         sequence.description = ""
         new_rec_list.append(sequence)
+        super_scaffolds_len += len(sequence)
+
+    # check contigs that are in the input fasta but are not in the super_scaffolds
+    missing_fasta_len = 0
+    missing_fasta_ids = set(record_dict.keys()) - seen
+
+    for fasta_id in missing_fasta_ids:
+        new_rec_list.append(record_dict[fasta_id])
+        missing_fasta_len += len(record_dict[fasta_id])
 
     with open(output_fasta, "w") as handle:
         SeqIO.write(new_rec_list, handle, "fasta")
+
+    total_in_fasta_sequence_length = 0
+    for record_id, record in record_dict.items():
+        total_in_fasta_sequence_length += len(record.seq)
+    print("Total fasta length: {:,}".format(total_in_fasta_sequence_length))
+    print("Total missing contig/scaffolds length: {:,}\t({:.2%})".
+             format(missing_fasta_len, float(missing_fasta_len) / total_in_fasta_sequence_length))
+    print("Total hic scaffolds length: {:,}\t({:.2%})".
+             format(super_scaffolds_len, float(super_scaffolds_len) / total_in_fasta_sequence_length))
 
 
 def make_sure_path_exists(path):
@@ -204,40 +233,8 @@ def main(args):
                                         split_positions_file=args.split_positions_file)
 
     super_contigs = assembl.assemble_contigs()
-    save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)
-    exit()
-    flat = []
-    for contig in super_contigs:
-        for part in contig:
-            flat.append(part[0])
-
-    print " ".join(flat)
-
-    print super_contigs
-    evaluate_super_contigs(super_contigs)
-    data = {'scaffolds':assembl.N50,
-            'id2contig_pos': assembl.hic.cut_intervals,
-            'contig_name': assembl.scaffolds.id2contig_name,
-            'id2pos': position}
-
-    make_plots(data, args.outFile, args.genomeSizes)
-
-#    scaffolds_to_bed(assembl, position)
-    import pickle as pi
-    with open(args.outFile+'_final_assembl.pickle', 'wb') as f:
-        pi.dump(data,f)
     import ipdb;ipdb.set_trace()
-    exit()
-    print_N50(data['scaffolds'], args.outFile)
-    test_super_contigs(assembl, args.outFile,position)
-    exit()
-    print np.array([(k, v) for k, v in id2pos.iteritems()])
-
-#    mat = ma.matrix[new_order,:][:,new_order]
-#    np.savez("/tmp/ordermat.npz", mat=mat)
-#    ma.setMatrixValues(mat)
-#    ma.save(args.outFile.name)
-
+    save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)
 
 if __name__ == "__main__":
     args = parse_arguments()

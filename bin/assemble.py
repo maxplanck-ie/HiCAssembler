@@ -144,8 +144,8 @@ def evaluate_super_contigs(super_contigs):
     dot_plot_super_contigs(super_check_list)
 
 
-def save_fasta(input_fasta, output_fasta, super_scaffolds):
-    """
+def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, contig_separator='N'*5000):
+    r"""
     Takes the hic scaffolds information and the original fasta file
     and merges the individual scaffolds sequences. All sequences that are
     not part of the hic scaffolds are returned as well
@@ -155,36 +155,61 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
     input_fasta input fasta file
     output_fasta
     super_scaffolds in the form of a list of list.
-
+    print_stats boolean If true, then the total number of bases on the input fasta, hic scaffolds and missing
+                        scaffolds is printed
+    contig_separator Sequence to add between contig/scaffolds to separate them.
 
     Returns
     -------
+
+    # make small test fasta file
+    >>> test_fasta = ">one\nAAAGGG\n>two\nTTTAAA\n"
+    >>> fh = open("/tmp/test.fasta",'w')
+    >>> fh.write(test_fasta)
+    >>> fh.close()
+
+    Check that first three bases of sequence 'two' are added
+    >>> scaff = [[('one', 0, 6, '+'), ('two', 0, 3, '+')]]
+    >>> save_fasta('/tmp/test.fasta', '/tmp/out.fasta', scaff, print_stats=False, contig_separator='-')
+    >>> open('/tmp/out.fasta', 'r').readlines()
+    ['>hic_scaffold_1 one:0-6:+,two:0-3:+\n', 'AAAGGG-TTT\n']
+
+    Check that last three bases of sequence 'two' are added and that
+    sequence 'one' is backwards
+    >>> scaff = [[('one', 0, 6, '-'), ('two', 3, 6, '+')]]
+    >>> save_fasta('/tmp/test.fasta', '/tmp/out.fasta', scaff, print_stats=False, contig_separator='-')
+    >>> open('/tmp/out.fasta', 'r').readlines()
+    ['>hic_scaffold_1 one:0-6:-,two:3-6:+\n', 'GGGAAA-AAA\n']
 
     >>> super_scaffolds = [[('scaffold_12472', 170267, 763072, '-'), ('scaffold_12932', 1529201, 1711857, '-'),
     ... ('scaffold_12932', 1711857, 2102469, '-'), ('scaffold_12726', 1501564, 2840439, '-')],
     ... [('scaffold_13042', 0, 239762, '-'), ('scaffold_12928', 0, 1142515, '-')]]
     >>> save_fasta("../hicassembler/test/scaffolds_test.fa", "/tmp/test.fa", super_scaffolds)
+    Total fasta length: 18,618,060
+    Total missing contig/scaffolds length: 2,748 (0.01%)
+    Total hic scaffolds length: 3,907,225 (20.99%)
     """
 
     from Bio import SeqIO
     from Bio.Seq import Seq
     record_dict = SeqIO.to_dict(SeqIO.parse(input_fasta, "fasta"))
     new_rec_list = []
-    nnn_seq = Seq('N'*5000)
+    nnn_seq = Seq(contig_separator)
     super_scaffolds_len = 0
     seen = set([])
     for idx, super_c in enumerate(super_scaffolds):
         sequence = Seq("")
         info = []
-        for contig_id, start, end, strand in super_c:
+        for contig_idx, (contig_id, start, end, strand) in enumerate(super_c):
             if strand == '-':
-                sequence += record_dict[contig_id][start:end].reverse_complement()
+                sequence += record_dict[contig_id][start:end][::-1]
             else:
                 sequence += record_dict[contig_id][start:end]
-            sequence += nnn_seq
-            info.append("{contig}:{start}-{end}:{strand}".format(contig=contig_id,
-                                                               start=start, end=end,
-                                                               strand=strand))
+            if contig_idx < len(super_c) - 1:
+                # only add the separator sequence
+                sequence += nnn_seq
+            info.append("{contig}:{start}-{end}:{strand}".
+                        format(contig=contig_id, start=start, end=end, strand=strand))
             seen.add(contig_id)
 
         id = "hic_scaffold_{} ".format(idx + 1) + ",".join(info)
@@ -204,14 +229,15 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds):
     with open(output_fasta, "w") as handle:
         SeqIO.write(new_rec_list, handle, "fasta")
 
-    total_in_fasta_sequence_length = 0
-    for record_id, record in record_dict.items():
-        total_in_fasta_sequence_length += len(record.seq)
-    print("Total fasta length: {:,}".format(total_in_fasta_sequence_length))
-    print("Total missing contig/scaffolds length: {:,}\t({:.2%})".
-             format(missing_fasta_len, float(missing_fasta_len) / total_in_fasta_sequence_length))
-    print("Total hic scaffolds length: {:,}\t({:.2%})".
-             format(super_scaffolds_len, float(super_scaffolds_len) / total_in_fasta_sequence_length))
+    if print_stats:
+        total_in_fasta_sequence_length = 0
+        for record_id, record in record_dict.items():
+            total_in_fasta_sequence_length += len(record.seq)
+        print("Total fasta length: {:,}".format(total_in_fasta_sequence_length))
+        print("Total missing contig/scaffolds length: {:,} ({:.2%})".
+                 format(missing_fasta_len, float(missing_fasta_len) / total_in_fasta_sequence_length))
+        print("Total hic scaffolds length: {:,} ({:.2%})".
+                 format(super_scaffolds_len, float(super_scaffolds_len) / total_in_fasta_sequence_length))
 
 
 def make_sure_path_exists(path):
@@ -233,7 +259,6 @@ def main(args):
                                         split_positions_file=args.split_positions_file)
 
     super_contigs = assembl.assemble_contigs()
-    import ipdb;ipdb.set_trace()
     save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)
 
 if __name__ == "__main__":

@@ -8,8 +8,7 @@ import copy
 
 
 import hicexplorer.HiCMatrix as HiCMatrix
-from hicexplorer.iterativeCorrection import iterativeCorrection
-from hicexplorer.reduceMatrix import reduce_matrix
+import hicexplorer.hicMergeMatrixBins
 import hicexplorer.hicFindTADs as hicFindTADs
 from functools import wraps
 from hicassembler.Scaffolds import Scaffolds
@@ -103,7 +102,6 @@ class HiCAssembler:
                     # make an smaller matrix having bins of around 25.000 bp
                     num_bins = matrix_bin_size / binsize
 
-                    from hicexplorer.hicMergeMatrixBins import merge_bins
                     log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
                     self.hic = merge_bins(self.hic, num_bins)
 
@@ -806,10 +804,11 @@ class HiCAssembler:
 
         fig = plt.figure(figsize=(10, 10))
         hic = self.reorder_matrix()
-        chrbin_boundaries = hic.chrBinBoundaries
 
         axHeat2 = fig.add_subplot(111)
         axHeat2.set_title(title)
+
+        chrbin_boundaries = hic.chrBinBoundaries
         ma = hic.matrix.todense()
         norm = None
         if log1p:
@@ -904,7 +903,7 @@ class HiCAssembler:
 
         return super_scaffolds
 
-    def reorder_matrix(self):
+    def reorder_matrix(self, max_num_bins=4000):
         """
         Reorders the matrix using the assembled paths
 
@@ -927,6 +926,17 @@ class HiCAssembler:
         start_bin = 0
         end_bin = 0
 
+        # reduce the density of the matrix if this one is too big
+        if hic.matrix.shape[0] > max_num_bins:
+            # compute number of bins required to reduce resolution to desired
+            # goal
+            num_bins_to_merge = hic.matrix.shape[0] / max_num_bins
+            log.debug("Matrix size is too large for printing. Reducing the matrix by mergin {} bins".
+                      format(num_bins_to_merge))
+            hic, map_old_to_merged = HiCAssembler.merge_bins(hic, num_bins_to_merge, skip_small=False,
+                                                             return_bin_id_mapping=True)
+        else:
+            map_old_to_merged = None
         # check if scaffolds are already merged, and if not
         # sort the names alphanumerically.
         if self.scaffolds_graph.scaffold.path == {}:
@@ -939,16 +949,30 @@ class HiCAssembler:
                 path_list_test[idx] = []
                 for scaffold_name in scaff_path:
                     bin_path = self.scaffolds_graph.scaffold.node[scaffold_name]['path']
-                    order_list.extend(bin_path)
-                    path_list_test[idx].extend(bin_path)
-                    end_bin += len(bin_path)
+                    if map_old_to_merged is not None:
+                        new_bin_path = []
+                        seen = set()
+                        for bin_id in bin_path:
+                            try:
+                                map_old_to_merged[bin_id]
+                            except:
+                                import ipdb;ipdb.set_trace()
+                            if map_old_to_merged[bin_id] not in seen:
+                                new_bin_path.append(map_old_to_merged[bin_id])
+                            seen.add(map_old_to_merged[bin_id])
+                    else:
+                        new_bin_path = bin_path
+                    order_list.extend(new_bin_path)
+                    path_list_test[idx].extend(new_bin_path)
+                    end_bin += len(new_bin_path)
 
-                assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
+                #assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
                 scaff_boundaries["scaff_{}".format(idx)] = (start_bin, end_bin)
                 start_bin = end_bin
 
             hic.reorderBins(order_list)
             hic.chromosomeBinBoundaries = scaff_boundaries
+
         return hic
 
     def get_nearest_neighbors_2(self, paths, min_neigh=1, trans=True, threshold=0,
@@ -1494,6 +1518,118 @@ class HiCAssembler:
                 pass
 
         return flanks
+
+    @staticmethod
+    def merge_bins(hic, num_bins, skip_small=True, return_bin_id_mapping=False):
+        """
+        Merge the bins using the specified number of bins. This
+        functions takes care to make new intervals
+
+        Parameters
+        ----------
+
+        hic : HiCMatrix object
+
+        num_bins : number of consecutive bins to merge.
+
+        Returns
+        -------
+
+        A sparse matrix.
+
+        Set up a Hi-C test matrix
+        >>> from scipy.sparse import csr_matrix
+        >>> row, col = np.triu_indices(5)
+        >>> cut_intervals = [('a', 0, 10, 0.5), ('a', 10, 20, 1),
+        ... ('a', 20, 30, 1), ('a', 30, 40, 0.1), ('b', 40, 50, 1)]
+        >>> hic = HiCMatrix.hiCMatrix()
+        >>> hic.nan_bins = []
+        >>> matrix = np.array([
+        ... [ 50, 10,  5,  3,   0],
+        ... [  0, 60, 15,  5,   1],
+        ... [  0,  0, 80,  7,   3],
+        ... [  0,  0,  0, 90,   1],
+        ... [  0,  0,  0,  0, 100]], dtype=np.int32)
+
+        make the matrix symmetric:
+        >>> from scipy.sparse import dia_matrix
+
+        >>> dia = dia_matrix(([matrix.diagonal()], [0]), shape=matrix.shape)
+        >>> hic.matrix = csr_matrix(matrix + matrix.T - dia)
+        >>> hic.setMatrix(hic.matrix, cut_intervals)
+
+        run merge_matrix
+        >>> merge_matrix, map_id = HiCAssembler.merge_bins(hic, 2)
+        >>> merge_matrix.cut_intervals
+        [('a', 0, 20, 0.75), ('a', 20, 40, 0.55000000000000004), ('b', 40, 50, 1.0)]
+        >>> merge_matrix.matrix.todense()
+        matrix([[120,  28,   1],
+                [ 28, 177,   4],
+                [  1,   4, 100]], dtype=int32)
+        >>> map_id
+        {0: 0, 1: 0, 2: 1, 3: 1}
+        """
+
+        hic = hicexplorer.hicMergeMatrixBins.remove_nans_if_needed(hic)
+        # get the bins to merge
+        ref_name_list, start_list, end_list, coverage_list = zip(*hic.cut_intervals)
+        new_bins = []
+        bins_to_merge = []
+        prev_ref = ref_name_list[0]
+
+        # prepare new intervals
+        idx_start = 0
+        new_start = start_list[0]
+        count = 0
+        merge_bin_id = 0
+        mapping_old_to_merged_bin_ids = {}
+        for idx, ref in enumerate(ref_name_list):
+            if (count > 0 and count % num_bins == 0) or ref != prev_ref:
+                if skip_small is True and count < num_bins / 2:
+                    sys.stderr.write("{} has few bins ({}). Skipping it\n".format(prev_ref, count))
+                else:
+                    coverage = np.mean(coverage_list[idx_start:idx])
+                    new_end = end_list[idx - 1]
+                    if new_start > new_end:
+                        sys.stderr.write("end of new merged bin is smaller than start")
+                    new_bins.append((ref_name_list[idx_start], new_start, end_list[idx - 1], coverage))
+                    bins_to_merge.append(list(range(idx_start, idx)))
+                    for old_bin_id in list(range(idx_start, idx)):
+                        mapping_old_to_merged_bin_ids[old_bin_id] = merge_bin_id
+                    merge_bin_id += 1
+                idx_start = idx
+                new_start = start_list[idx]
+                count = 0
+
+            prev_ref = ref
+            count += 1
+
+        if skip_small is True and count < num_bins / 2:
+            sys.stderr.write("{} has few bins ({}). Skipping it\n".format(prev_ref, count))
+        else:
+            coverage = np.mean(coverage_list[idx_start:])
+            new_end = end_list[idx - 1]
+            if new_start > new_end:
+                sys.stderr.write("end of new merged bin is smaller than start")
+            new_bins.append((ref, new_start, end_list[idx], coverage))
+            bins_to_merge.append(list(range(idx_start, idx + 1)))
+            for old_bin_id in list(range(idx_start, idx + 1)):
+                mapping_old_to_merged_bin_ids[old_bin_id] = merge_bin_id
+            merge_bin_id += 1
+
+        #debug
+        if len(mapping_old_to_merged_bin_ids.keys()) != hic.matrix.shape[0]:
+            import ipdb;ipdb.set_trace()
+
+        hic.matrix = hicexplorer.hicMergeMatrixBins.reduce_matrix(hic.matrix, bins_to_merge, diagonal=True)
+        hic.matrix.eliminate_zeros()
+        hic.setCutIntervals(new_bins)
+        hic.nan_bins = np.flatnonzero(hic.matrix.sum(0).A == 0)
+
+        if return_bin_id_mapping is True:
+            return hic, mapping_old_to_merged_bin_ids
+        else:
+            return hic
 
 
 class HiCAssemblerException(Exception):

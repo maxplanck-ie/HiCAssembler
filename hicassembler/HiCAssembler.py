@@ -103,7 +103,7 @@ class HiCAssembler:
                     num_bins = matrix_bin_size / binsize
 
                     log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
-                    self.hic = merge_bins(self.hic, num_bins)
+                    self.hic = HiCAssembler.merge_bins(self.hic, num_bins)
 
                 self.hic.save(merged_bins_matrix_file)
                 self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
@@ -931,7 +931,7 @@ class HiCAssembler:
             # compute number of bins required to reduce resolution to desired
             # goal
             num_bins_to_merge = hic.matrix.shape[0] / max_num_bins
-            log.debug("Matrix size is too large for printing. Reducing the matrix by mergin {} bins".
+            log.debug("Matrix size is too large for printing. Reducing the matrix by merging {} bins".
                       format(num_bins_to_merge))
             hic, map_old_to_merged = HiCAssembler.merge_bins(hic, num_bins_to_merge, skip_small=False,
                                                              return_bin_id_mapping=True)
@@ -1616,10 +1616,6 @@ class HiCAssembler:
             for old_bin_id in list(range(idx_start, idx + 1)):
                 mapping_old_to_merged_bin_ids[old_bin_id] = merge_bin_id
             merge_bin_id += 1
-
-        #debug
-        if len(mapping_old_to_merged_bin_ids.keys()) != hic.matrix.shape[0]:
-            import ipdb;ipdb.set_trace()
 
         hic.matrix = hicexplorer.hicMergeMatrixBins.reduce_matrix(hic.matrix, bins_to_merge, diagonal=True)
         hic.matrix.eliminate_zeros()

@@ -218,16 +218,16 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, con
         new_rec_list.append(sequence)
         super_scaffolds_len += len(sequence)
 
-    # check contigs that are in the input fasta but are not in the super_scaffolds
-    missing_fasta_len = 0
-    missing_fasta_ids = set(record_dict.keys()) - seen
-
-    for fasta_id in missing_fasta_ids:
-        new_rec_list.append(record_dict[fasta_id])
-        missing_fasta_len += len(record_dict[fasta_id])
-
-    with open(output_fasta, "w") as handle:
-        SeqIO.write(new_rec_list, handle, "fasta")
+    # # check contigs that are in the input fasta but are not in the super_scaffolds
+    # missing_fasta_len = 0
+    # missing_fasta_ids = set(record_dict.keys()) - seen
+    #
+    # for fasta_id in missing_fasta_ids:
+    #     new_rec_list.append(record_dict[fasta_id])
+    #     missing_fasta_len += len(record_dict[fasta_id])
+    #
+    # with open(output_fasta, "w") as handle:
+    #     SeqIO.write(new_rec_list, handle, "fasta")
 
     if print_stats:
         total_in_fasta_sequence_length = 0

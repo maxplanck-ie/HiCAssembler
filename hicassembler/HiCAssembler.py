@@ -5,7 +5,7 @@ import inspect
 import time
 import os.path
 import copy
-
+import sys
 
 import hicexplorer.HiCMatrix as HiCMatrix
 import hicexplorer.hicMergeMatrixBins

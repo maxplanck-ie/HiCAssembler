@@ -150,7 +150,7 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(4):
+        for iteration in range(2):
             self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
@@ -870,18 +870,23 @@ class HiCAssembler:
 
         Examples
         --------
+        >>> import tempfile
+        >>> dirpath = tempfile.mkdtemp(prefix="hicassembler_test_")
         >>> from hicassembler.Scaffolds import get_test_matrix as get_test_matrix
         >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 30, 2), ('c-1', 0, 10, 1),
         ... ('c-1', 10, 20, 1), ('c-2/1', 0, 10, 1), ('c-2/2', 10, 30, 1)]
 
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False, min_scaffold_length=0)
-        >>> H.scaffolds_graph.add_edge_matrix_bins(1,2)
-        >>> H.get_contig_order()
-        [[('c-2', 10, 30, '+')], [('c-2', 0, 10, '+')], [('c-0', 0, 30, '+'), ('c-1', 0, 20, '+')]]
+        >>> H = HiCAssembler(hic, "", dirpath, split_misassemblies=False, min_scaffold_length=0)
+        >>> H.scaffolds_graph.add_edge_matrix_bins(1,3)
+        >>> H.get_contig_order(add_split_contig_name=True)
+        [[('c-2', 10, 30, '+')], [('c-2', 0, 10, '+')], [('c-0', 0, 30, '+'), ('c-1', 0, 20, '-')]]
 
         >>> H.get_contig_order(add_split_contig_name=True)
-        [[('c-2/2', 10, 30, '+')], [('c-2/1', 0, 10, '+')], [('c-0', 0, 30, '+'), ('c-1', 0, 20, '+')]]
+        [[('c-2/2', 10, 30, '+')], [('c-2/1', 0, 10, '+')], [('c-0', 0, 30, '+'), ('c-1', 0, 20, '-')]]
+        >>> import shutil
+        >>> shutil.rmtree(dirpath)
+
         """
         import re
         super_scaffolds = []
@@ -901,7 +906,84 @@ class HiCAssembler:
 
             super_scaffolds.append(scaffold)
 
-        return super_scaffolds
+        # sanity check
+        scaff_order = {}
+        gaps = {}
+        for idx, matrix_bin_path in enumerate(self.scaffolds_graph.matrix_bins.get_all_paths()):
+            scaff_order[idx] = []
+            prev_scaff_name = None
+            prev_end = None
+            prev_start = None
+            start_scaff = None
+            end_scaff = None
+
+            direction = '+'
+            gaps[idx] = []
+            for bin_id in matrix_bin_path:
+                # get the scaffold name
+                scaff_name, start, end, extra = self.hic.getBinPos(bin_id)
+                bin_data = self.scaffolds_graph.matrix_bins.node[bin_id]
+                assert bin_data['name'] == scaff_name
+                assert bin_data['start'] == start
+                assert bin_data['end'] == end
+                if add_split_contig_name is False:
+                    # check if node name has an indication that it was split (by ending in '/n')
+                    res = re.search("(.*?)/(\d+)$", scaff_name)
+                    if res is not None:
+                        scaff_name = res.group(1)
+
+                if scaff_name != prev_scaff_name and prev_scaff_name is not None:
+                    scaff_order[idx].append((prev_scaff_name, start_scaff, end_scaff, direction))
+                    start_scaff = None
+                    end_scaff = None
+                if start_scaff is None:
+                    start_scaff = start
+                if start_scaff > start:
+                    # if the start position is decreasing, that means
+                    # that the scaffold is oriented backwards
+                    start_scaff = start
+                    direction = '-'
+                # check for gaps
+                # e.g.
+                # direction +
+                #
+                # start |  0 | 10 | 20
+                # end   | 10 | 20 | 30
+
+                # direction -
+                # start | 20 | 10 |  0
+                # end   | 30 | 20 | 10
+
+                if prev_end is not None and start > prev_end and direction == "+":
+                    # gap in forward
+                    gaps[idx].append((scaff_name, start, end, prev_start, prev_end, direction))
+                if prev_start is not None and end > prev_start and direction == "-":
+                    gaps[idx].append((scaff_name, start, end, prev_start, prev_end, direction))
+                if end_scaff is None or end_scaff < end:
+                    end_scaff = end
+                prev_scaff_name = scaff_name
+                prev_end = end
+                prev_start = start
+
+            scaff_order[idx].append((prev_scaff_name, start_scaff, end_scaff, direction))
+
+        # brute force comparison
+        not_found_list = {}
+        for idx, hic_scaff_order in scaff_order.iteritems():
+            not_found_list[idx] = []
+            for super_scaff in super_scaffolds:
+                match = False
+                if hic_scaff_order == super_scaff:
+                    match = True
+                    break
+            if match is False:
+                not_found_list[idx].append(hic_scaff_order)
+
+        log.debug(not_found_list)
+        # import ipdb; ipdb.set_trace()
+        # return super_scaffolds
+        ## debug. scaff order seems to provide more reliable results
+        return scaff_order.values()
 
     def reorder_matrix(self, max_num_bins=4000):
         """
@@ -937,6 +1019,7 @@ class HiCAssembler:
                                                              return_bin_id_mapping=True)
         else:
             map_old_to_merged = None
+
         # check if scaffolds are already merged, and if not
         # sort the names alphanumerically.
         if self.scaffolds_graph.scaffold.path == {}:
@@ -945,10 +1028,19 @@ class HiCAssembler:
             hic.chromosomeBinBoundaries = hic.chrBinBoundaries
         else:
             path_list_test = {}
+            debug_order = {}
             for idx, scaff_path in enumerate(self.scaffolds_graph.scaffold.get_all_paths()):
+                # scaff_path looks like:
+                # ['scaffold_12970/3', 'scaffold_12472/3', 'scaffold_12932/3', 'scaffold_12726/3', 'scaffold_12726/1']
+                log.debug("scaff_path: {}".format(scaff_path))
                 path_list_test[idx] = []
+                debug_order[idx] = []
                 for scaffold_name in scaff_path:
                     bin_path = self.scaffolds_graph.scaffold.node[scaffold_name]['path']
+                    debug_order[idx].append((self.scaffolds_graph.scaffold.node[scaffold_name]['name'],
+                                             self.scaffolds_graph.scaffold.node[scaffold_name]['start'],
+                                             self.scaffolds_graph.scaffold.node[scaffold_name]['end'],
+                                             self.scaffolds_graph.scaffold.node[scaffold_name]['direction']))
                     if map_old_to_merged is not None:
                         new_bin_path = []
                         seen = set()
@@ -966,13 +1058,13 @@ class HiCAssembler:
                     path_list_test[idx].extend(new_bin_path)
                     end_bin += len(new_bin_path)
 
-                #assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
+                # assert path_list_test[idx] == self.scaffolds_graph.matrix_bins[path_list_test[idx][0]]
                 scaff_boundaries["scaff_{}".format(idx)] = (start_bin, end_bin)
                 start_bin = end_bin
 
             hic.reorderBins(order_list)
             hic.chromosomeBinBoundaries = scaff_boundaries
-
+            log.debug(debug_order)
         return hic
 
     def get_nearest_neighbors_2(self, paths, min_neigh=1, trans=True, threshold=0,

@@ -1963,7 +1963,7 @@ class Scaffolds(object):
         For this example, the paths are [0, 1, 2] and [3, 4, 5]. Thus, the contacts
         for (0,1) and (1,2) should have a weight of 5.
         >>> G.adj[0]
-        {1: {'weight': 5.0}, 2: {'weight': 2.0}, 3: {'weight': 2.0}, 4: {'weight': 2.0}, 5: {'weight': 2.0}}
+        AtlasView({1: {'weight': 5.0}, 2: {'weight': 2.0}, 3: {'weight': 2.0}, 4: {'weight': 2.0}, 5: {'weight': 2.0}})
         >>> G.node[0]
         {'start': 0, 'length': 10, 'end': 10, 'name': 'c-0', 'coverage': 1}
 
@@ -2056,11 +2056,19 @@ class Scaffolds(object):
                     self.scaffold.node[scaff_name]['direction'] = "-"
                 self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
 
+        # check that direction is properly set
+        for scaff in [scaffold_u, scaffold_v]:
+            scaff_direction = '+' if self.scaffold.node[scaff]['path'][0] < self.scaffold.node[scaff]['path'][-1] else "-"
+            if self.scaffold.node[scaff]['direction'] != scaff_direction:
+                import ipdb; ipdb.set_trace()
+            assert self.scaffold.node[scaff]['direction'] == scaff_direction, "mismatch with scaffold direction"
+
+
         self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)
 
     def add_edge_matrix_bins(self, bin_u, bin_v, weight=None):
         """
-        Adds an edge using the matrix_bins pathgraph. And edge to the
+        Adds an edge using the matrix_bins pathgraph. An edge to the
         scaffolds pathgraph is also added.
 
         Parameters
@@ -2111,6 +2119,15 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
 
         >>> S = Scaffolds(hic)
+
+        before adding an edge, 'c-0' and 'c-1' are not joined
+        and the direction of 'c-1' is '+'
+
+        >>> S.matrix_bins.path
+        {'c-2': [4, 5], 'c-1': [2, 3], 'c-0': [0, 1]}
+        >>> S.scaffold.node['c-1']
+        {'direction': '+', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [2, 3]}
+
         >>> S.add_edge(1, 3)
 
         c-0 and c-1 are joined and c-1 is inverted
@@ -2130,10 +2147,18 @@ class Scaffolds(object):
         >>> S.scaffold.node['c-1']
         {'direction': '-', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [3, 2]}
 
+        New test based on split_merge
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
 
-        # after split and merge, we have matrix_bins and pg_base (pg_base being the merge of contig)
+        >>> S.matrix_bins.path
+        {'c-2': [4, 5], 'c-1': [2, 3], 'c-0': [0, 1]}
+        >>> S.scaffold.node['c-1']
+        {'direction': '+', 'end': 30, 'name': 'c-1', 'merged_path_id': 1, 'start': 10, 'length': 20, 'path': [2, 3]}
+
+        after split and merge, we have matrix_bins and pg_base (pg_base being the merge of contigs)
+        Now, the ids refer to the 'contig' id and not to the bin ids.
+        Thus, 'c-0' id is 0, 'c-1' is 1 and 'c-2' is 2
         >>> S.add_edge(0, 2)
         >>> S.matrix_bins.path
         {'c-0, c-2': [0, 1, 5, 4], 'c-1': [2, 3]}

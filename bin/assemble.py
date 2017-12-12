@@ -179,7 +179,7 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, con
     >>> scaff = [[('one', 0, 6, '-'), ('two', 3, 6, '+')]]
     >>> save_fasta('/tmp/test.fasta', '/tmp/out.fasta', scaff, print_stats=False, contig_separator='-')
     >>> open('/tmp/out.fasta', 'r').readlines()
-    ['>hic_scaffold_1 one:0-6:-,two:3-6:+\n', 'GGGAAA-AAA\n']
+    ['>hic_scaffold_1 one:0-6:-,two:3-6:+\n', 'CCCTTT-AAA\n']
 
     >>> super_scaffolds = [[('scaffold_12472', 170267, 763072, '-'), ('scaffold_12932', 1529201, 1711857, '-'),
     ... ('scaffold_12932', 1711857, 2102469, '-'), ('scaffold_12726', 1501564, 2840439, '-')],
@@ -202,7 +202,9 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, con
         info = []
         for contig_idx, (contig_id, start, end, strand) in enumerate(super_c):
             if strand == '-':
-                sequence += record_dict[contig_id][start:end][::-1]
+                # the reverse complement is the correct way to get
+                # the inverted sequence.
+                sequence += record_dict[contig_id][start:end].reverse_complement()
             else:
                 sequence += record_dict[contig_id][start:end]
             if contig_idx < len(super_c) - 1:
@@ -218,26 +220,26 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, con
         new_rec_list.append(sequence)
         super_scaffolds_len += len(sequence)
 
-    # # check contigs that are in the input fasta but are not in the super_scaffolds
-    # missing_fasta_len = 0
-    # missing_fasta_ids = set(record_dict.keys()) - seen
-    #
-    # for fasta_id in missing_fasta_ids:
-    #     new_rec_list.append(record_dict[fasta_id])
-    #     missing_fasta_len += len(record_dict[fasta_id])
-    #
+    # check contigs that are in the input fasta but are not in the super_scaffolds
+    missing_fasta_len = 0
+    missing_fasta_ids = set(record_dict.keys()) - seen
+
+    for fasta_id in missing_fasta_ids:
+        new_rec_list.append(record_dict[fasta_id])
+        missing_fasta_len += len(record_dict[fasta_id])
+
     with open(output_fasta, "w") as handle:
         SeqIO.write(new_rec_list, handle, "fasta")
 
-    # if print_stats:
-    #     total_in_fasta_sequence_length = 0
-    #     for record_id, record in record_dict.items():
-    #         total_in_fasta_sequence_length += len(record.seq)
-    #     print("Total fasta length: {:,}".format(total_in_fasta_sequence_length))
-    #     print("Total missing contig/scaffolds length: {:,} ({:.2%})".
-    #              format(missing_fasta_len, float(missing_fasta_len) / total_in_fasta_sequence_length))
-    #     print("Total hic scaffolds length: {:,} ({:.2%})".
-    #              format(super_scaffolds_len, float(super_scaffolds_len) / total_in_fasta_sequence_length))
+    if print_stats:
+        total_in_fasta_sequence_length = 0
+        for record_id, record in record_dict.items():
+            total_in_fasta_sequence_length += len(record.seq)
+        print("Total fasta length: {:,}".format(total_in_fasta_sequence_length))
+        print("Total missing contig/scaffolds length: {:,} ({:.2%})".
+                 format(missing_fasta_len, float(missing_fasta_len) / total_in_fasta_sequence_length))
+        print("Total hic scaffolds length: {:,} ({:.2%})".
+                 format(super_scaffolds_len, float(super_scaffolds_len) / total_in_fasta_sequence_length))
 
 
 def make_sure_path_exists(path):

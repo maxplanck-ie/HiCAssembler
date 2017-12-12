@@ -397,6 +397,21 @@ class PathGraph(object):
         Traceback (most recent call last):
         ...
         PathGraphEdgeNotPossible: Joining nodes 0, 5 forms a circle
+
+        Test return direction
+        >>> S = PathGraph()
+        >>> S.add_path([0, 1, 2, 3])
+        >>> S.add_path([6, 5, 4])
+        >>> S.add_edge(3,4, return_direction=True)
+        ('+', '-')
+
+        >>> S.add_path([7, 8])
+        >>> S.add_edge(7, 6, return_direction=True)
+        ('-', '-')
+
+        >>> S[7]
+        [8, 7, 6, 5, 4, 3, 2, 1, 0]
+
         """
         if attr_dict is None:
             attr_dict = attr

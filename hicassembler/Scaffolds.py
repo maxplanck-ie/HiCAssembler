@@ -2033,25 +2033,93 @@ class Scaffolds(object):
 
         return nxG
 
-    def add_scaffold_edge(self,_bin_u, _bin_v, _weight, direction):
+    def add_scaffold_edge(self, _bin_u, _bin_v, _weight, direction):
+        """
+        To add an edge on the scaffold pathgraph the direction of the
+        individual scaffolds has to be updated accordingly.
+
+        Thus, apart from adding the scaffold edge, the orientation of
+        the scaffolds is updated.
+
+        Parameters
+        ----------
+        _bin_u
+        _bin_v
+        _weight
+        direction
+
+        Returns
+        -------
+
+
+        Examples
+        --------
+
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-1', 10, 20, 1),
+        ... ('c-1', 20, 30, 1), ('c-2', 0, 10, 1), ('c-2', 10, 20, 1)]
+        >>> from scipy.sparse import csr_matrix
+        >>> A = csr_matrix(np.array(
+        ... [[80, 15,  5,  1,  2,  3],
+        ...  [15, 80, 15,  2,  3,  5],
+        ...  [ 5, 15, 80,  3,  15, 10],
+        ...  [ 1,  2,  3, 80, 15,  5],
+        ...  [ 2,  3,  15, 15, 80, 15],
+        ...  [ 3,  5, 10,  5, 15, 80]]))
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
+
+        >>> S = Scaffolds(hic)
+
+        Add and edge between c-0 and c-1, that requires a change in the direction
+        of c-0. The numbers in the add_edge function are
+        the bin ids, 1 is the second bin of 'c-0' and 2, is the first bin of
+        'c-1'
+        >>> S.add_edge(0, 2)
+
+        >>> S.scaffold.path
+        {'c-0, c-1': ['c-0', 'c-1']}
+        >>> S.scaffold.node['c-0']
+        {'direction': '-', 'end': 20, 'name': 'c-0', 'start': 0, 'length': 20, 'path': [1, 0]}
+        >>> (S.scaffold.node['c-0']['direction'], S.scaffold.node['c-1']['direction'])
+        ('-', '+')
+
+        Now, an edge is added that causes the path ['c-0', 'c-1'] to be inverted and the c-2
+        scaffold to be inverted as well. Fot the resulting path, the directions should be
+        ('-', '-', '+') for c-2, c-0, and c-1 respectively. Notice that c-0, c-1 should change
+        from ('-', '+') to now c-1, c-0 ('-', '+')
+        >>> S.add_edge(4, 3)
+        >>> S.scaffold.path
+        {'c-2, c-0, c-1': ['c-2', 'c-1', 'c-0']}
+        >>> S.scaffold.node['c-1']
+        {'direction': '-', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [3, 2]}
+
+        Node c-0 should be back to orientation + and the path should be [0, 1]
+        >>> S.scaffold.node['c-0']
+        {'direction': '+', 'end': 20, 'name': 'c-0', 'start': 0, 'length': 20, 'path': [0, 1]}
+
+        >>> [S.scaffold.node[x]['direction'] for x in S.scaffold.path.values()[0]]
+        ['-', '-', '+']
+        """
         scaffold_u = self.bin_id_to_scaff[_bin_u]
         scaffold_v = self.bin_id_to_scaff[_bin_v]
         if direction[0] == '-':
+            # change the direction of the path containing the scaffold_u
             for scaff_name in self.scaffold[scaffold_u]:
                 if self.scaffold.node[scaff_name]['direction'] == "+":
                     self.scaffold.node[scaff_name]['direction'] = "-"
                 elif self.scaffold.node[scaff_name]['direction'] == "-":
-                    self.scaffold.node[scaff_name]['direction'] = "-"
+                    self.scaffold.node[scaff_name]['direction'] = "+"
                 else: # when direction has not been set:
                     self.scaffold.node[scaff_name]['direction'] = "-"
                 self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
 
         if direction[1] == '-':
+            # change the direction of the path containing the scaffold_u
             for scaff_name in self.scaffold[scaffold_v]:
                 if self.scaffold.node[scaff_name]['direction'] == "+":
                     self.scaffold.node[scaff_name]['direction'] = "-"
                 elif self.scaffold.node[scaff_name]['direction'] == "-":
-                    self.scaffold.node[scaff_name]['direction'] = "-"
+                    self.scaffold.node[scaff_name]['direction'] = "+"
                 else: # when direction has not been set:
                     self.scaffold.node[scaff_name]['direction'] = "-"
                 self.scaffold.node[scaff_name]['path'] = self.scaffold.node[scaff_name]['path'][::-1]
@@ -2089,7 +2157,7 @@ class Scaffolds(object):
 
     # def add_edge_scaffold(self, scaff_a, scaff_v, weight=None):
 
-    def add_edge(self, u, v, weight=None, ):
+    def add_edge(self, u, v, weight=None):
         """
         Adds and edge both in the reduced PathGraph (pg_base), in the
         matrix_bins PathGraph and in the scaffolds PathGraph

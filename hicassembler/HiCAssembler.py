@@ -150,7 +150,7 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(3):
+        for iteration in range(2):
             self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
@@ -159,7 +159,7 @@ class HiCAssembler:
             self.N50.append(n50)
 
             # the first iteration is is more stringent
-            if iteration < 3:
+            if iteration < 2:
                 target_size = int(min(2e6, self.scaffolds_graph.paths_min * (iteration + 1)))
                 log.debug("Merging small bins in larger bins of size {} bp".format(target_size))
                 self.scaffolds_graph.split_and_merge_contigs(num_splits=3,
@@ -198,7 +198,7 @@ class HiCAssembler:
 
         self.put_back_small_scaffolds()
 
-        after_assembly_length, afeger_num_paths = self.scaffolds_graph.get_assembly_length()
+        after_assembly_length, after_num_paths = self.scaffolds_graph.get_assembly_length()
 
         diff = after_assembly_length - before_assembly_length
         log.info('{:,} bp ({:.2%}) were added back to the assembly'.format(diff,
@@ -209,7 +209,10 @@ class HiCAssembler:
 
         self.plot_matrix(self.out_folder + "/after_put_scaff_back.pdf".format(iteration), title="After assembly", add_vlines=True)
 
+        hic = self.reorder_matrix(max_num_bins=int(1e6), rename_scaffolds=True)
+        hic.save(self.out_folder + "/final_matrix.h5")
         print self.N50
+
         return self.get_contig_order()
 
     def make_scaffold_network(self, orig_scaff):
@@ -225,12 +228,14 @@ class HiCAssembler:
         Examples
         --------
 
+        >>> import tempfile
+        >>> dirpath = tempfile.mkdtemp(prefix="hicassembler_test_")
         >>> from hicassembler.Scaffolds import get_test_matrix as get_test_matrix
         >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 30, 2), ('c-1', 0, 10, 1),
         ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 30, 1)]
 
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
-        >>> H = HiCAssembler(hic, "", "/tmp/test/", split_misassemblies=False,
+        >>> H = HiCAssembler(hic, "", dirpath, split_misassemblies=False,
         ... min_scaffold_length=20, use_log=False)
         >>> H.scaffolds_graph.split_and_merge_contigs(num_splits=1, normalize_method='none')
         >>> H.scaffolds_graph.add_edge(0, 1)
@@ -248,6 +253,9 @@ class HiCAssembler:
         >>> list(G.edges(data=True))
         [('c-2', 'c-1', {'weight': 16.0}), ('c-2', 'c-0', {'weight': 42.0}), \
 ('c-1', 'c-0', {'weight': 28.0})]
+
+        >>> import shutil
+        >>> shutil.rmtree(dirpath)
 
         """
         nxG = nx.Graph()
@@ -670,7 +678,8 @@ class HiCAssembler:
                 for path_u, path_v in zip(best_path[:-1], best_path[1:]):
                     self.scaffolds_graph.add_edge_matrix_bins(path_u[-1], path_v[0])
 
-                log.info("Scaffolds {} successfully integrated into the network".format(path[1:]))
+                integrated_paths = [(x, self.scaffolds_graph.scaffold.node[x]['length']) for x in path[1:]]
+                log.info("Scaffolds {} successfully integrated into the network".format(integrated_paths))
 
         return
 
@@ -1001,10 +1010,14 @@ class HiCAssembler:
         ## debug. scaff order seems to provide more reliable results
         return scaff_order.values()
 
-    def reorder_matrix(self, max_num_bins=4000):
+    def reorder_matrix(self, max_num_bins=4000, rename_scaffolds=False):
         """
         Reorders the matrix using the assembled paths
 
+        max_num_bins: since reorder is used mostly for plotting, it is required that the matrices are not too large
+                      thus, a maximum number of bins can be set.
+        rename_scaffolds: Set to true if the original scaffold names that are already merged should be renamed as
+                          hic_scaffold_{n} where n is a counter
         Returns
         -------
         """
@@ -1044,19 +1057,12 @@ class HiCAssembler:
             hic.chromosomeBinBoundaries = hic.chrBinBoundaries
         else:
             path_list_test = {}
-            debug_order = {}
             for idx, scaff_path in enumerate(self.scaffolds_graph.scaffold.get_all_paths()):
                 # scaff_path looks like:
                 # ['scaffold_12970/3', 'scaffold_12472/3', 'scaffold_12932/3', 'scaffold_12726/3', 'scaffold_12726/1']
-                log.debug("scaff_path: {}".format(scaff_path))
                 path_list_test[idx] = []
-                debug_order[idx] = []
                 for scaffold_name in scaff_path:
                     bin_path = self.scaffolds_graph.scaffold.node[scaffold_name]['path']
-                    debug_order[idx].append((self.scaffolds_graph.scaffold.node[scaffold_name]['name'],
-                                             self.scaffolds_graph.scaffold.node[scaffold_name]['start'],
-                                             self.scaffolds_graph.scaffold.node[scaffold_name]['end'],
-                                             self.scaffolds_graph.scaffold.node[scaffold_name]['direction']))
                     if map_old_to_merged is not None:
                         new_bin_path = []
                         seen = set()
@@ -1080,7 +1086,24 @@ class HiCAssembler:
 
             hic.reorderBins(order_list)
             hic.chromosomeBinBoundaries = scaff_boundaries
-            log.debug(debug_order)
+
+        if rename_scaffolds is True:
+            new_intervals = []
+            start_list = []
+            for idx, scaff_id in enumerate(hic.chromosomeBinBoundaries):
+                start_bin, end_bin = hic.chromosomeBinBoundaries[scaff_id]
+                start = 0
+                for interval in hic.cut_intervals[start_bin:end_bin]:
+                    scaff_name, int_start, int_end, cov = interval
+                    if (start + (int_end - int_start)) < 0:
+                        import ipdb; ipdb.set_trace()
+                    end = start + (int_end - int_start)
+                    new_intervals.append(("hic_scaffold_{}".format(idx+1), start, end, cov))
+                    start_list.append((start, end, int_start, int_end, int_end-int_start))
+
+                    start = end
+
+            hic.setCutIntervals(new_intervals)
         return hic
 
     def get_nearest_neighbors_2(self, paths, min_neigh=1, trans=True, threshold=0,
@@ -1667,7 +1690,7 @@ class HiCAssembler:
         >>> hic.setMatrix(hic.matrix, cut_intervals)
 
         run merge_matrix
-        >>> merge_matrix, map_id = HiCAssembler.merge_bins(hic, 2)
+        >>> merge_matrix, map_id = HiCAssembler.merge_bins(hic, 2, return_bin_id_mapping=True)
         >>> merge_matrix.cut_intervals
         [('a', 0, 20, 0.75), ('a', 20, 40, 0.55000000000000004), ('b', 40, 50, 1.0)]
         >>> merge_matrix.matrix.todense()
@@ -1675,7 +1698,7 @@ class HiCAssembler:
                 [ 28, 177,   4],
                 [  1,   4, 100]], dtype=int32)
         >>> map_id
-        {0: 0, 1: 0, 2: 1, 3: 1}
+        {0: 0, 1: 0, 2: 1, 3: 1, 4: 2}
         """
 
         hic = hicexplorer.hicMergeMatrixBins.remove_nans_if_needed(hic)

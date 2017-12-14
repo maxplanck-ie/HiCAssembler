@@ -2127,9 +2127,11 @@ class Scaffolds(object):
         # check that direction is properly set
         for scaff in [scaffold_u, scaffold_v]:
             scaff_direction = '+' if self.scaffold.node[scaff]['path'][0] < self.scaffold.node[scaff]['path'][-1] else "-"
-            if self.scaffold.node[scaff]['direction'] != scaff_direction:
-                import ipdb; ipdb.set_trace()
-            assert self.scaffold.node[scaff]['direction'] == scaff_direction, "mismatch with scaffold direction"
+            # this check is only for scaffolds with only more than one bin
+            if len(self.scaffold.node[scaff]['path']) > 1:
+                if self.scaffold.node[scaff]['direction'] != scaff_direction:
+                    import ipdb; ipdb.set_trace()
+                assert self.scaffold.node[scaff]['direction'] == scaff_direction, "mismatch with scaffold direction"
 
 
         self.scaffold.add_edge(scaffold_u, scaffold_v, weight=_weight)

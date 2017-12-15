@@ -159,7 +159,7 @@ class HiCAssembler:
             self.N50.append(n50)
 
             # the first iteration is is more stringent
-            if iteration < 2:
+            if iteration < 3:
                 target_size = int(min(2e6, self.scaffolds_graph.paths_min * (iteration + 1)))
                 log.debug("Merging small bins in larger bins of size {} bp".format(target_size))
                 self.scaffolds_graph.split_and_merge_contigs(num_splits=3,
@@ -582,7 +582,7 @@ class HiCAssembler:
         # 1. Identify branches
 
         # delete backbone nodes that are not adjacent to a removed scaffold (removed scaffolds are those
-        # small contig/scaffolds removed at the begining that are stores in the self.scaffolds_graph.remove_scaffolds.
+        # small contig/scaffolds removed at the beginning that are stores in the self.scaffolds_graph.remove_scaffolds.
         # Basically, all so called backbone nodes that are not connected to the scaffolds that we want to put back
         # are deleted.
         for node_id in self.scaffolds_graph.scaffold.node.keys():
@@ -611,77 +611,145 @@ class HiCAssembler:
                 log.debug("No backbone found for branch with nodes: {}".format(branch.node.keys()))
                 continue
 
-            # each branch should contain only one backbone node
-            if len(backbone_list) > 1:
+            # each branch should contain at most two backbone node
+            if len(backbone_list) > 2:
                 log.info("Branch contains more than one backbone. Backbones in branch: {}".format(backbone_list))
                 log.info("Skipping this branch of length: {}".format(len(branch)))
                 continue
 
-            backbone_node = list(backbone_list)[0]
+            # if the branch contains two backbone nodes and is a path
+            # that means that the path is connecting two different
+            # hic-scaffolds. The solution is to break the path by the
+            # weakest link instead of letting the path to join the
+            # two different hic-scaffolds
+            elif len(backbone_list) == 2:
+                # check if the branch forms a path with the backbones at the two ends
+                path = HiCAssembler._get_paths_from_backbone(branch, list(backbone_list)[0])
+                if len(path) > 1:
+                    continue
 
-            # A this point a branch may look like this
-            #                       o
-            #                      /
-            #               o--*--o--o
-            #                   \
-            #                    o--o--o
-            #                        \
-            #                         o
-            #
-            # where `*` is the backbone node.
+                path = path[0]
+                if backbone_list.intersection([path[0], path[-1]]) != backbone_list:
+                    # the two backbones are not on the sides of the path.
+                    continue
 
-            branch = HiCAssembler._remove_weakest(branch, exclude=[backbone_node])
-            # after removing the weakest edges parts of the graph are no longer connected to the backbone
-            # thus, the subgraph containing the backbone is selected
+                # check that the backbone nodes are adjacent in
+                # the scaffolds path
+                if path[0] in self.scaffolds_graph.scaffold.adj[path[-1]]:
+                    # remove one of the back bones of the graph and continue
+                    log.debug("Removing on backbone scaffold from branch with two backbones")
+                    branch.remove_node(path[-1])
+                    self.insert_path(path, orig_scaff)
+                    continue
+                else:
+                    # the backbones belong to different hic-scaffolds
+                    # the path is splitted by the weakest edge.
+                    min_weight = np.Inf
+                    for u, v, attr in branch.edges(data=True):
+                        if attr['weight'] < min_weight:
+                            min_edge = (u, v)
+                            min_weight = attr['weight']
 
-            branch = HiCAssembler._get_subgraph_containing_node(branch, backbone_node)
-            if branch is None:
-                log.debug("Graph is emtpy")
-                continue
+                    log.debug("Removing weak edge in path connecting two hic-scaffolds: "
+                              "edge: {}, weight: {}".format(min_edge, min_weight))
 
-            for path in HiCAssembler._get_paths_from_backbone(branch, backbone_node):
-                # in path, path[0] is always the backbone node.
+                    idx_u = path.index(min_edge[0])
+                    idx_v = path.index(min_edge[1])
 
-                for scaff_name in path[1:]:
-                    # restore all scaffolds except for path[0] which is the backbone node (and was not removed)
-                    self.scaffolds_graph.restore_scaffold(scaff_name)
+                    if idx_u > idx_v:
+                        idx_u, idx_v = idx_v, idx_u
+                    assert idx_u + 1 == idx_v
+                    path_a = path[:idx_v]
+                    path_b = path[idx_v:]
+                    log.debug("path {}, path_a {} path_b {}".format(path, path_a, path_b))
+                    if len(path_a) > 0:
+                        self.insert_path(path_a, orig_scaff)
 
-                # get the matrix bin paths for each scaffold
-                bins_path = [self.scaffolds_graph.scaffold.node[x]['path'] for x in path]
+                    if len(path_b) > 0:
+                        # path b must be inverted such that path[0]
+                        # corresponds to the backbone node
+                        self.insert_path(path_b[::-1], orig_scaff)
 
-                # a. find the best orientation of the scaffold paths with respect to each other
-                #     the best path contains the bins_path in the best computed orientations
-                # best_path[0] is the backbone scaffold path
-                best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, bins_path,
-                                                            only_expand_but_not_permute=True)
+                    continue
+            else:
+                backbone_node = list(backbone_list)[0]
 
-                # the backbone bin id that should be joined with the removed scaffold
-                # corresponds to the the last bin_id in the first best_path, which is the backbone path
-                backbone_bin = best_path[0][-1]
+                # A this point a branch may look like this
+                #                       o
+                #                      /
+                #               o--*--o--o
+                #                   \
+                #                    o--o--o
+                #                        \
+                #                         o
+                #
+                # where `*` is the backbone node.
 
-                # identify the neighbor bin of the backbone scaffold in adjacent scaffold (if any).
-                # To insert the removed scaffolds an edge in the assembled scaffolds has to be removed. This
-                # edge is the edge containing the backbone_bin.
-                adjacent_backbone_bin = None
-                for adj in self.scaffolds_graph.matrix_bins.adj[backbone_bin].keys():
-                    if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[backbone_bin]['name']:
-                        adjacent_backbone_bin = adj
-                        break
+                branch = HiCAssembler._remove_weakest(branch, exclude=[backbone_node])
+                # after removing the weakest edges parts of the graph are no longer connected to the backbone
+                # thus, the subgraph containing the backbone is selected
 
-                if adjacent_backbone_bin is not None:
-                    # delete edge between backbone and adjacent scaffold
-                    self.scaffolds_graph.delete_edge_from_matrix_bins(backbone_bin, adjacent_backbone_bin)
-                    # add edge between last bin in best path and adjacent scaffold
-                    self.scaffolds_graph.add_edge_matrix_bins(best_path[-1][-1], adjacent_backbone_bin)
+                branch = HiCAssembler._get_subgraph_containing_node(branch, backbone_node)
+                if branch is None:
+                    log.debug("Graph is emtpy")
+                    continue
 
-                # b. add the other edges in the path
-                for path_u, path_v in zip(best_path[:-1], best_path[1:]):
-                    self.scaffolds_graph.add_edge_matrix_bins(path_u[-1], path_v[0])
-
-                integrated_paths = [(x, self.scaffolds_graph.scaffold.node[x]['length']) for x in path[1:]]
-                log.info("Scaffolds {} successfully integrated into the network".format(integrated_paths))
+                for path in HiCAssembler._get_paths_from_backbone(branch, backbone_node):
+                    self.insert_path(path, orig_scaff)
 
         return
+
+    def insert_path(self, path, orig_scaff):
+        """
+
+        Parameters
+        ----------
+        path
+
+        Returns
+        -------
+
+        """
+        # in path, path[0] is always the backbone node.
+
+        for scaff_name in path[1:]:
+            # restore all scaffolds except for path[0] which is the backbone node (and was not removed)
+            self.scaffolds_graph.restore_scaffold(scaff_name)
+
+        # get the matrix bin paths for each scaffold
+        bins_path = [self.scaffolds_graph.scaffold.node[x]['path'] for x in path]
+
+        # a. find the best orientation of the scaffold paths with respect to each other
+        #     the best path contains the bins_path in the best computed orientations
+        # best_path[0] is the backbone scaffold path
+        best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, bins_path,
+                                                    only_expand_but_not_permute=True)
+
+        # the backbone bin id that should be joined with the removed scaffold
+        # corresponds to the the last bin_id in the first best_path, which is the backbone path
+        backbone_bin = best_path[0][-1]
+
+        # identify the neighbor bin of the backbone scaffold in adjacent scaffold (if any).
+        # To insert the removed scaffolds an edge in the assembled scaffolds has to be removed. This
+        # edge is the edge containing the backbone_bin.
+        adjacent_backbone_bin = None
+        for adj in self.scaffolds_graph.matrix_bins.adj[backbone_bin].keys():
+            if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[backbone_bin]['name']:
+                adjacent_backbone_bin = adj
+                break
+
+        if adjacent_backbone_bin is not None:
+            # delete edge between backbone and adjacent scaffold
+            self.scaffolds_graph.delete_edge_from_matrix_bins(backbone_bin, adjacent_backbone_bin)
+            # add edge between last bin in best path and adjacent scaffold
+            self.scaffolds_graph.add_edge_matrix_bins(best_path[-1][-1], adjacent_backbone_bin)
+
+        # b. add the other edges in the path
+        for path_u, path_v in zip(best_path[:-1], best_path[1:]):
+            self.scaffolds_graph.add_edge_matrix_bins(path_u[-1], path_v[0])
+
+        integrated_paths = [(x, self.scaffolds_graph.scaffold.node[x]['length']) for x in path[1:]]
+        log.info("Scaffolds {} successfully integrated into the network".format(integrated_paths))
 
     def split_misassemblies(self, hic_file_name, split_positions_file=None):
         """
@@ -746,6 +814,10 @@ class HiCAssembler:
         log.info("Splitting scaffolds using threshold = {}".format(self.misassembly_threshold))
         for idx in np.flatnonzero(zscore < self.misassembly_threshold):
             # find the bins that overlap with the misassembly
+            if scaffold[idx] not in self.hic.interval_trees:
+                # the scaffold[idx] key may not be present
+                # in the self.hic because of the reduction of the matrix, which removes some scaffolds
+                continue
             if scaffold[idx] not in bin_ids:
                 bin_ids[scaffold[idx]] = []
             to_split_intervals = sorted(self.hic.interval_trees[scaffold[idx]][start[idx]:end[idx]])
@@ -981,6 +1053,11 @@ class HiCAssembler:
             scaff_start, scaff_end, direction = get_start_end_direction(scaff_name, bin_list, start_list, end_list)
             scaff_order[idx].append((scaff_name, scaff_start, scaff_end, direction))
 
+        # scaffolds that were removed and could not be put back need to be returned as well
+        for scaff in self.scaffolds_graph.removed_scaffolds.node.values():
+            idx += 1
+            scaff_order[idx] = [(scaff['name'], scaff['start'], scaff['end'], '+')]
+
         if add_split_contig_name is False:
             scaff_order_renamed = {}
             for idx, scaff_path in scaff_order.iteritems():
@@ -1104,6 +1181,7 @@ class HiCAssembler:
                     start = end
 
             hic.setCutIntervals(new_intervals)
+
         return hic
 
     def get_nearest_neighbors_2(self, paths, min_neigh=1, trans=True, threshold=0,

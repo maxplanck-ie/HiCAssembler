@@ -661,7 +661,6 @@ class HiCAssembler:
                     assert idx_u + 1 == idx_v
                     path_a = path[:idx_v]
                     path_b = path[idx_v:]
-                    log.debug("path {}, path_a {} path_b {}".format(path, path_a, path_b))
                     if len(path_a) > 0:
                         self.insert_path(path_a, orig_scaff)
 

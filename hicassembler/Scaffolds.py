@@ -16,7 +16,7 @@ import networkx as nx
 
 logging.basicConfig()
 log = logging.getLogger("Scaffolds")
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 
 
 def logit(func):
@@ -489,7 +489,8 @@ class Scaffolds(object):
     def get_paths_stats(self):
         import matplotlib.pyplot as plt
         paths_length = np.fromiter(self.get_paths_length(), int)
-        plt.hist(paths_length, 100)
+        if len(paths_length) > 10:
+            plt.hist(paths_length, 100)
         # TODO clear debug code that generates images
         file_name = "{}/stats_len_{}.pdf".format(self.out_folder, len(paths_length))
         log.debug("Saving histogram {} ".format(file_name))
@@ -687,7 +688,7 @@ class Scaffolds(object):
             if target_size is not None:
                 # define the number of splits based on the target size
                 length = sum([self.matrix_bins.node[x]['length'] for x in path])
-                if target_size < length:
+                if target_size <= length:
                     num_splits = length / target_size
                 else:
                     log.debug("path is too small ({:,}) to split for target size {:,}".format(length, target_size))
@@ -1023,10 +1024,10 @@ class Scaffolds(object):
         divided_path = []
 
         if len(path) == 1:
-            log.warn("Can't subdivide path of length = 1")
+            log.debug("Can't subdivide path of length = 1")
             divided_path = [path]
         elif len(path) < num_parts:
-            log.warn("Can't subdivide path of length = {} into {} parts. Dividing into {} "
+            log.debug("Can't subdivide path of length = {} into {} parts. Dividing into {} "
                      "parts".format(len(path), num_parts, len(path)))
             divided_path = [[x] for x in path]
         else:
@@ -1247,7 +1248,7 @@ class Scaffolds(object):
                                           'max': np.max(v),
                                           'min': np.min(v),
                                           'len': len(v)}
-            if len(v) < 10:
+            if len(v) < 10 and k < 15:
                 log.warn('stats for distance {} contain only {} samples'.format(k, len(v)))
         return mean_path_length, sd_path_length, consolidated_dist_value
 

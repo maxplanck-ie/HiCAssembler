@@ -1869,9 +1869,17 @@ class Scaffolds(object):
                 # remove the weakest edges but only if either of the nodes is not a hub
                 for adj_node, attr in adj[:-2]:
                     if len(G.adj[adj_node]) > 3:
-                        # adj node is hub. It this case remove the node from the graph
-
-                        self.delete_edge_from_matrix_bins(node)
+                        log.warn("\n\nHub-hub contact for bin_id:{}\tscaffold: {}\tdegree: {}\n"
+                                 "with bin_id: {}\tscaffold: {}\tdegree:{}\n\n"
+                                 "##############\n"
+                                 "these cases could introduce problems in the assembly\n"
+                                 "##############\n\n".format(node, self.pg_base.node[node]['name'],
+                                                             len(G.adj[node]), adj_node,
+                                                             self.pg_base.node[adj_node]['name'],
+                                                             len(G.adj[adj_node])))
+                        # # adj node is hub. It this case remove the node from the graph
+                        # import ipdb;ipdb.set_trace()
+                        # self.delete_edge_from_matrix_bins(node)
                     log.debug("Removing weak edge {}-{} weight: {}".format(G.node[node]['name'],
                                                                            G.node[adj_node]['name'],
                                                                            attr['weight']))

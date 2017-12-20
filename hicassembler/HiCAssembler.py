@@ -414,6 +414,11 @@ class HiCAssembler:
         [['backbone', 1, 2, 3], ['backbone', 4, 5]]
         """
 
+        for k, v in dict(nx.degree(graph)).iteritems():
+            if v > 2 and k != backbone_node:
+                log.warn("graph contains non backbone nodes with degree > 2 (only backbone nodes should have a "
+                         "degree > 2 to insert scaffolds into hic-scaffolds")
+                return []
         # get backbone_id neighbors
         path_list = []
         seen = set([backbone_node])
@@ -622,7 +627,7 @@ class HiCAssembler:
             # hic-scaffolds. The solution is to break the path by the
             # weakest link instead of letting the path to join the
             # two different hic-scaffolds
-            elif len(backbone_list) == 2:
+            elif len(backbone_list) == 2 and max(dict(nx.degree(branch)).values()) <=2:
                 # check if the branch forms a path with the backbones at the two ends
                 path = HiCAssembler._get_paths_from_backbone(branch, list(backbone_list)[0])
                 if len(path) > 1:
@@ -633,8 +638,9 @@ class HiCAssembler:
                     # the two backbones are not on the sides of the path.
                     continue
 
-                # check that the backbone nodes are adjacent in
-                # the scaffolds path
+                # check if the backbone nodes are adjacent in
+                # the hic-scaffolds. That means the removed path
+                # should be inserted between them.
                 if path[0] in self.scaffolds_graph.scaffold.adj[path[-1]]:
                     # remove one of the back bones of the graph and continue
                     log.debug("Removing on backbone scaffold from branch with two backbones")
@@ -670,7 +676,7 @@ class HiCAssembler:
                         self.insert_path(path_b[::-1], orig_scaff)
 
                     continue
-            else:
+            elif len(backbone_list) == 1:
                 backbone_node = list(backbone_list)[0]
 
                 # A this point a branch may look like this
@@ -696,6 +702,9 @@ class HiCAssembler:
                 for path in HiCAssembler._get_paths_from_backbone(branch, backbone_node):
                     self.insert_path(path, orig_scaff)
 
+            else:
+                not_backbone = set(branch.nodes).difference(backbone_list)
+                log.info("The following scaffolds could not be added to the hic-scaffolds: {}".format(not_backbone))
         return
 
     def insert_path(self, path, orig_scaff):
@@ -1143,10 +1152,7 @@ class HiCAssembler:
                         new_bin_path = []
                         seen = set()
                         for bin_id in bin_path:
-                            try:
-                                map_old_to_merged[bin_id]
-                            except:
-                                import ipdb;ipdb.set_trace()
+                            map_old_to_merged[bin_id]
                             if map_old_to_merged[bin_id] not in seen:
                                 new_bin_path.append(map_old_to_merged[bin_id])
                             seen.add(map_old_to_merged[bin_id])
@@ -1171,8 +1177,6 @@ class HiCAssembler:
                 start = 0
                 for interval in hic.cut_intervals[start_bin:end_bin]:
                     scaff_name, int_start, int_end, cov = interval
-                    if (start + (int_end - int_start)) < 0:
-                        import ipdb; ipdb.set_trace()
                     end = start + (int_end - int_start)
                     new_intervals.append(("hic_scaffold_{}".format(idx+1), start, end, cov))
                     start_list.append((start, end, int_start, int_end, int_end-int_start))

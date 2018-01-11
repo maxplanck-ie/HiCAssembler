@@ -269,7 +269,7 @@ def plotPerChr(hic_matrix, cmap, args):
     """
     from math import ceil
     chromosomes = hic_matrix.getChrNames()
-    chrom_per_row = 5
+    chrom_per_row = 15
     num_rows = int(ceil(float(len(chromosomes)) / chrom_per_row))
     num_cols = min(chrom_per_row, len(chromosomes))
     width_ratios = [1.0] * num_cols + [0.05]

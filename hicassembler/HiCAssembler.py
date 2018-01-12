@@ -797,7 +797,7 @@ class HiCAssembler:
             ft.hic_ma.save(zscore_matrix_file)
 
         log.info("Using previously computed scores: {}\t{}".format(tad_score_file, zscore_matrix_file))
-        # TODO here the hic_file is loaded unnecesarily. A way to remove this step would be good
+        # TODO here the hic_file is loaded unnecessarily. A way to remove this step would be good
         ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=False)
         ft.hic_ma = HiCMatrix.hiCMatrix(zscore_matrix_file)
         ft.load_bedgraph_matrix(tad_score_file)
@@ -832,17 +832,24 @@ class HiCAssembler:
             bin_ids[scaffold[idx]].extend(sorted([interval_bin.data for interval_bin in to_split_intervals]))
 
         if split_positions_file is not None:
-            log.debug("loading positions to split")
+            log.debug("loading positions to split from {}".format(split_positions_file))
             from hicexplorer import readBed
 
             bed_file_h = readBed.ReadBed(open(split_positions_file, 'r'))
             for bed in bed_file_h:
                 # find the bins that overlap with the misassembly
                 if bed.chromosome not in self.hic.interval_trees:
+                    log.info("split position {} not found in hic matrix".format(bed))
                     continue
                 if bed.chromosome not in bin_ids:
                     bin_ids[bed.chromosome] = []
                 to_split_intervals = sorted(self.hic.interval_trees[bed.chromosome][bed.start:bed.end])
+                if len(to_split_intervals) == 0:
+                    # it could be that there is not bin nearby so the nearest bin is taken
+                    log.info('split position from split list {} does not match any bin. Using nearest bin'.format(bed))
+                    to_split_intervals = [sorted(self.hic.interval_trees[bed.chromosome][0:bed.end])[-1]]
+                    log.info('split position used is {}.'.format(to_split_intervals[0]))
+
                 bin_ids[bed.chromosome].extend(sorted([interval_bin.data for interval_bin in to_split_intervals]))
 
         # rename cut intervals

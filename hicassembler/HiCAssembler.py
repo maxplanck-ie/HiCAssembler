@@ -82,6 +82,13 @@ class HiCAssembler:
         # hic.diagflat(0)
         self.fasta_file = fasta_file
         self.out_folder = out_folder
+        self.min_mad = min_mad
+        self.max_mad = max_mad
+        self.min_scaffold_length = min_scaffold_length
+        self.num_processors = num_processors
+        self.misassembly_threshold = misassembly_zscore_threshold
+        self.merged_paths = None
+        self.iteration = 0
 
         if not isinstance(hic_file_name, str):
             # assume that the hic given is already a HiCMatrix object
@@ -96,6 +103,17 @@ class HiCAssembler:
                 self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
             else:
                 self.hic = HiCMatrix.hiCMatrix(hic_file_name)
+                #self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly")
+
+                if split_misassemblies:
+                    # try to find contigs that probably should be separated
+                    self.split_misassemblies(hic_file_name, split_positions_file)
+                    # build scaffolds graph. Bins on the same contig are
+                    # put together into a path (a type of graph with max degree = 2)
+                    self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
+                    self.plot_matrix(self.out_folder + "/after_split_assembly.pdf",
+                                     title="After split mis-assemblies assembly", add_vlines=True)
+
                 log.info("Merging bins of file to reduce resolution")
                 binsize = self.hic.getBinSize()
                 if binsize < matrix_bin_size:
@@ -111,29 +129,12 @@ class HiCAssembler:
         if use_log:
             self.hic.matrix.data = np.log1p(self.hic.matrix.data)
 
-        self.min_mad = min_mad
-        self.max_mad = max_mad
-        self.min_scaffold_length = min_scaffold_length
-        self.num_processors = num_processors
-        self.misassembly_threshold = misassembly_zscore_threshold
-        self.merged_paths = None
-        self.iteration = 0
 
         #self.remove_noise_from_matrix()
 
         # build scaffolds graph. Bins on the same contig are
         # put together into a path (a type of graph with max degree = 2)
         self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
-
-        self.plot_matrix(self.out_folder + "/before_assembly.pdf", title="Before assembly")
-        if split_misassemblies:
-            # try to find contigs that probably should be separated
-            self.split_misassemblies(hic_file_name, split_positions_file)
-            # build scaffolds graph. Bins on the same contig are
-            # put together into a path (a type of graph with max degree = 2)
-            self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
-            self.plot_matrix(self.out_folder + "/after_split_assembly.pdf",
-                             title="After split mis-assemblies assembly", add_vlines=True)
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
@@ -142,7 +143,7 @@ class HiCAssembler:
 
         self.N50 = []
 
-    def assemble_contigs(self):
+    def assemble_contigs(self, num_iterations=3):
         """
 
         Returns
@@ -150,7 +151,7 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(2):
+        for iteration in range(num_iterations):
             self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
@@ -818,7 +819,7 @@ class HiCAssembler:
 
         # select as misassemblies all boundaries that have a zscore lower than 1.64 (p-value 0.05)
         bin_ids = {}
-
+        bins_to_remove = []
         log.info("Splitting scaffolds using threshold = {}".format(self.misassembly_threshold))
         for idx in np.flatnonzero(zscore < self.misassembly_threshold):
             # find the bins that overlap with the misassembly
@@ -831,6 +832,7 @@ class HiCAssembler:
             to_split_intervals = sorted(self.hic.interval_trees[scaffold[idx]][start[idx]:end[idx]])
             bin_ids[scaffold[idx]].extend(sorted([interval_bin.data for interval_bin in to_split_intervals]))
 
+        # split scaffolds based on input file from user
         if split_positions_file is not None:
             log.debug("loading positions to split from {}".format(split_positions_file))
             from hicexplorer import readBed
@@ -850,7 +852,15 @@ class HiCAssembler:
                     to_split_intervals = [sorted(self.hic.interval_trees[bed.chromosome][0:bed.end])[-1]]
                     log.info('split position used is {}.'.format(to_split_intervals[0]))
 
-                bin_ids[bed.chromosome].extend(sorted([interval_bin.data for interval_bin in to_split_intervals]))
+                to_split_intervals = sorted([interval_bin.data for interval_bin in to_split_intervals])
+                if len(to_split_intervals) > 1:
+                    # if the split contains several bins, the region should be removed from the matrix.
+                    # All the bins, except the last one, are marked for deletion. The last one is marked
+                    # for split.
+                    bins_to_remove.extend(to_split_intervals[:-1])
+                    to_split_intervals = [to_split_intervals[-1]]
+
+                bin_ids[bed.chromosome].extend(to_split_intervals)
 
         # rename cut intervals
         num_removed_misassemblies = 0
@@ -873,6 +883,11 @@ class HiCAssembler:
 
         self.hic.setCutIntervals(new_cut_intervals)
         log.info("{} misassemblies were removed".format(num_removed_misassemblies))
+
+        if len(bins_to_remove) > 0:
+            log.info("{} bins will be removed from the matrix because they are contained within the split regions.".
+                     format(len(bins_to_remove)))
+            self.hic.removeBins(bins_to_remove)
 
     def plot_matrix(self, filename, title='Assembly results',
                     cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None):
@@ -1128,9 +1143,10 @@ class HiCAssembler:
         scaff_boundaries = OrderedDict()
         start_bin = 0
         end_bin = 0
+        num_bins_to_merge = hic.matrix.shape[0] / max_num_bins
 
         # reduce the density of the matrix if this one is too big
-        if hic.matrix.shape[0] > max_num_bins:
+        if hic.matrix.shape[0] > max_num_bins and num_bins_to_merge > 1:
             # compute number of bins required to reduce resolution to desired
             # goal
             num_bins_to_merge = hic.matrix.shape[0] / max_num_bins
@@ -1145,6 +1161,9 @@ class HiCAssembler:
         # sort the names alphanumerically.
         if self.scaffolds_graph.scaffold.path == {}:
             scaffold_order = sorted_nicely(list([x for x in self.scaffolds_graph.scaffold]))
+            # after merging, small scaffolds will be removed from the matrix. They need
+            # to be removed from scaffold_order before reordering the chromosomes to avoid an error
+            scaffold_order = [x for x in scaffold_order if x in hic.chrBinBoundaries.keys()]
             hic.reorderChromosomes(scaffold_order)
             hic.chromosomeBinBoundaries = hic.chrBinBoundaries
         else:

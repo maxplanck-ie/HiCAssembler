@@ -76,9 +76,20 @@ def parse_arguments(args=None):
                         type=float,
                         default=-1)
 
+    parser.add_argument('--num_iterations',
+                        help='HiCAssembles aims to produce longer and longer hi-c scaffolds in each iteration. The '
+                             'firsts iterations use stringent criteria to join contigs/scaffolds. The number of '
+                             'iterations required depend from sample to sample. By observing the after_assembly_.pdf '
+                             'images the desired number of iterations can be selected. Usually no more than 3 iterations '
+                             'are required.',
+                        type=int,
+                        default=2,
+                        required=False)
+
     parser.add_argument('--split_positions_file',
                         help='BED file. If the location of some mis-assemblies are known, they can be provided on a '
-                             'bed file to be splitted.',
+                             'bed file to be splitted. The Hi-C matrix bin that overlaps with a region in the bed '
+                             'file becomes the last bin before the split.',
                         required=False)
 
     return parser.parse_args(args)
@@ -144,7 +155,8 @@ def evaluate_super_contigs(super_contigs):
     dot_plot_super_contigs(super_check_list)
 
 
-def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, contig_separator='N'*5000):
+def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, contig_separator='N'*5000,
+               chain_file = None):
     r"""
     Takes the hic scaffolds information and the original fasta file
     and merges the individual scaffolds sequences. All sequences that are
@@ -177,27 +189,38 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, con
     Check that last three bases of sequence 'two' are added and that
     sequence 'one' is backwards
     >>> scaff = [[('one', 0, 6, '-'), ('two', 3, 6, '+')]]
-    >>> save_fasta('/tmp/test.fasta', '/tmp/out.fasta', scaff, print_stats=False, contig_separator='-')
+    >>> save_fasta('/tmp/test.fasta', '/tmp/out.fasta', scaff, print_stats=False, contig_separator='-', chain_file='/tmp/chain.txt')
     >>> open('/tmp/out.fasta', 'r').readlines()
     ['>hic_scaffold_1 one:0-6:-,two:3-6:+\n', 'CCCTTT-AAA\n']
+
+    Check chain file
+    >>> open('/tmp/chain.txt', 'r').readlines()[0]
+    'chain\t100\tone\t6\t+\t0\t6\thic_scaffold_1\t10\t-\t4\t10\t1\n'
 
     >>> super_scaffolds = [[('scaffold_12472', 170267, 763072, '-'), ('scaffold_12932', 1529201, 1711857, '-'),
     ... ('scaffold_12932', 1711857, 2102469, '-'), ('scaffold_12726', 1501564, 2840439, '-')],
     ... [('scaffold_13042', 0, 239762, '-'), ('scaffold_12928', 0, 1142515, '-')]]
-    >>> save_fasta("../hicassembler/test/scaffolds_test.fa", "/tmp/test.fa", super_scaffolds)
+    >>> save_fasta("../hicassembler/test/scaffolds_test.fa", "/tmp/test.fa", super_scaffolds,
+    ... chain_file="/tmp/chain.txt")
     Total fasta length: 18,618,060
     Total missing contig/scaffolds length: 2,748 (0.01%)
     Total hic scaffolds length: 3,907,225 (20.99%)
     """
 
+    chain_id = 0
     from Bio import SeqIO
     from Bio.Seq import Seq
     record_dict = SeqIO.to_dict(SeqIO.parse(input_fasta, "fasta"))
-    new_rec_list = []
+    hic_records_list = []
     nnn_seq = Seq(contig_separator)
     super_scaffolds_len = 0
     seen = set([])
+    if chain_file and os.path.isfile(chain_file):
+        os.unlink(chain_file)
+
     for idx, super_c in enumerate(super_scaffolds):
+        chain_data = []
+        hic_scaffold_start = 0
         sequence = Seq("")
         info = []
         for contig_idx, (contig_id, start, end, strand) in enumerate(super_c):
@@ -207,29 +230,59 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, con
                 sequence += record_dict[contig_id][start:end].reverse_complement()
             else:
                 sequence += record_dict[contig_id][start:end]
+
+            hic_scaffold_end = len(sequence)
             if contig_idx < len(super_c) - 1:
-                # only add the separator sequence
+                # only add the separator sequence if the sequence is not the last
                 sequence += nnn_seq
             info.append("{contig}:{start}-{end}:{strand}".
                         format(contig=contig_id, start=start, end=end, strand=strand))
+            chain_data.append((hic_scaffold_start, hic_scaffold_end, contig_id, start, end,
+                               len(record_dict[contig_id]), strand))
+            hic_scaffold_start = len(sequence)
             seen.add(contig_id)
 
-        id = "hic_scaffold_{} ".format(idx + 1) + ",".join(info)
-        sequence.id = id
+        id = "hic_scaffold_{}".format(idx + 1)
+        sequence.id = id + " " + ",".join(info)
         sequence.description = ""
-        new_rec_list.append(sequence)
-        super_scaffolds_len += len(sequence)
-
+        hic_records_list.append(sequence)
+        seq_length = len(sequence)
+        super_scaffolds_len += seq_length
+        if chain_file:
+            with open(chain_file, 'a') as fh:
+                for hic_start, hic_end, contig_id, contig_start, contig_end, contig_len, strand in chain_data:
+                    chain_id += 1
+                    if strand == '-':
+                        # for the chain file, if the strand is -, the coordinates need to be
+                        # given with respect to the inverted sequence. Thus, if hic_start=0 and hic_end=10
+                        # for a hic scaffold of length 20, the negative coordinates are hic_start_10, hic_end 20
+                        new_hic_start = seq_length - hic_end
+                        new_hic_end = seq_length - hic_start
+                        hic_start = new_hic_start
+                        hic_end = new_hic_end
+                    fh.write("chain\t100\t{contig_id}\t{contig_length}\t+\t{contig_start}\t{contig_end}"
+                             "\t{id}\t{length}\t{strand}\t{hic_start}\t{hic_end}\t{chain_id}\n".
+                             format(contig_id=contig_id,
+                                    contig_length=contig_len,
+                                    strand=strand,
+                                    contig_start=contig_start,
+                                    contig_end=contig_end,
+                                    id=id,
+                                    hic_start=hic_start,
+                                    length=seq_length,
+                                    hic_end=hic_end,
+                                    chain_id=chain_id))
+                    fh.write("{}\n\n".format(contig_end-contig_start))
     # check contigs that are in the input fasta but are not in the super_scaffolds
     missing_fasta_len = 0
     missing_fasta_ids = set(record_dict.keys()) - seen
 
     for fasta_id in missing_fasta_ids:
-        new_rec_list.append(record_dict[fasta_id])
+        hic_records_list.append(record_dict[fasta_id])
         missing_fasta_len += len(record_dict[fasta_id])
 
     with open(output_fasta, "w") as handle:
-        SeqIO.write(new_rec_list, handle, "fasta")
+        SeqIO.write(hic_records_list, handle, "fasta")
 
     if print_stats:
         total_in_fasta_sequence_length = 0
@@ -258,10 +311,12 @@ def main(args):
                                         matrix_bin_size=args.bin_size,
                                         num_processors=args.num_processors,
                                         misassembly_zscore_threshold=args.misassembly_zscore_threshold,
-                                        split_positions_file=args.split_positions_file)
+                                        split_positions_file=args.split_positions_file,
+                                        num_iterations=args.num_iterations)
 
     super_contigs = assembl.assemble_contigs()
-    save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs)
+    save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs,
+               chain_file=args.outFolder + "/liftover.chain")
 
 if __name__ == "__main__":
     args = parse_arguments()

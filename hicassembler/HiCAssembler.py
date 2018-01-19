@@ -56,7 +56,8 @@ class HiCAssembler:
                  min_mad=MIN_MAD, max_mad=MAX_MAD, split_misassemblies=True,
                  split_positions_file=None,
                  min_scaffold_length=MIN_LENGTH, matrix_bin_size=25000, use_log=False,
-                 num_processors=5, misassembly_zscore_threshold=ZSCORE_THRESHOLD):
+                 num_processors=5, misassembly_zscore_threshold=ZSCORE_THRESHOLD,
+                 num_iterations=2):
         """
         Prepares a hic matrix for assembly.
         It is expected that initial contigs or scaffolds contain bins
@@ -88,6 +89,7 @@ class HiCAssembler:
         self.num_processors = num_processors
         self.misassembly_threshold = misassembly_zscore_threshold
         self.merged_paths = None
+        self.num_iterations = num_iterations
         self.iteration = 0
 
         if not isinstance(hic_file_name, str):
@@ -143,7 +145,7 @@ class HiCAssembler:
 
         self.N50 = []
 
-    def assemble_contigs(self, num_iterations=3):
+    def assemble_contigs(self):
         """
 
         Returns
@@ -151,7 +153,7 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(num_iterations):
+        for iteration in range(self.num_iterations):
             self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
@@ -169,7 +171,7 @@ class HiCAssembler:
                 stats = self.scaffolds_graph.get_stats_per_split()
                 try:
                     if iteration == 1:
-                        conf_score = stats[2]['median']
+                        conf_score = stats[1]['median']
                     else:
                         conf_score = stats[2]['median'] * (1.0 / (iteration + 1))
                 # if the scaffolds are all very small, the get_stats_per_split

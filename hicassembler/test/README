@@ -1,0 +1,1 @@
+samtools faidx /data/repository/organisms/dvir1.3_ensembl/genome_fasta/genome.fa scaffold_12928 scaffold_13042 scaffold_12472 scaffold_12932 scaffold_12726 scaffold_3420 scaffold_8696 scaffold_1509 > scaffolds_test.fa

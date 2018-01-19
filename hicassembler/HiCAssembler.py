@@ -56,7 +56,8 @@ class HiCAssembler:
                  min_mad=MIN_MAD, max_mad=MAX_MAD, split_misassemblies=True,
                  split_positions_file=None,
                  min_scaffold_length=MIN_LENGTH, matrix_bin_size=25000, use_log=False,
-                 num_processors=5, misassembly_zscore_threshold=ZSCORE_THRESHOLD):
+                 num_processors=5, misassembly_zscore_threshold=ZSCORE_THRESHOLD,
+                 num_iterations=2):
         """
         Prepares a hic matrix for assembly.
         It is expected that initial contigs or scaffolds contain bins
@@ -82,7 +83,7 @@ class HiCAssembler:
         # hic.diagflat(0)
         self.fasta_file = fasta_file
         self.out_folder = out_folder
-
+        self.num_iterations = num_iterations
         if not isinstance(hic_file_name, str):
             # assume that the hic given is already a HiCMatrix object
             # this is normally used for testing
@@ -150,7 +151,7 @@ class HiCAssembler:
 
         """
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
-        for iteration in range(2):
+        for iteration in range(self.num_iterations):
             self.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
@@ -788,7 +789,7 @@ class HiCAssembler:
             ft.hic_ma.save(zscore_matrix_file)
 
         log.info("Using previously computed scores: {}\t{}".format(tad_score_file, zscore_matrix_file))
-        # TODO here the hic_file is loaded unnecesarily. A way to remove this step would be good
+        # TODO here the hic_file is loaded unnecessarily. A way to remove this step would be good
         ft = hicFindTADs.HicFindTads(hic_file_name, num_processors=self.num_processors, use_zscore=False)
         ft.hic_ma = HiCMatrix.hiCMatrix(zscore_matrix_file)
         ft.load_bedgraph_matrix(tad_score_file)

@@ -76,6 +76,16 @@ def parse_arguments(args=None):
                         type=float,
                         default=-1)
 
+    parser.add_argument('--num_iterations',
+                        help='HiCAssembles aims to produce longer and longer hi-c scaffolds in each iteration. The '
+                             'firsts iterations use stringent criteria to join contigs/scaffolds. The number of '
+                             'iterations required depend from sample to sample. By observing the after_assembly_.pdf '
+                             'images the desired number of iterations can be selected. Usually no more than 3 iterations '
+                             'are required.',
+                        type=int,
+                        default=2,
+                        required=False)
+
     parser.add_argument('--split_positions_file',
                         help='BED file. If the location of some mis-assemblies are known, they can be provided on a '
                              'bed file to be splitted. The Hi-C matrix bin that overlaps with a region in the bed '
@@ -301,7 +311,8 @@ def main(args):
                                         matrix_bin_size=args.bin_size,
                                         num_processors=args.num_processors,
                                         misassembly_zscore_threshold=args.misassembly_zscore_threshold,
-                                        split_positions_file=args.split_positions_file)
+                                        split_positions_file=args.split_positions_file,
+                                        num_iterations=args.num_iterations)
 
     super_contigs = assembl.assemble_contigs()
     save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs,

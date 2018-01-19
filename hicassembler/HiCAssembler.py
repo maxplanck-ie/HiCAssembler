@@ -110,11 +110,6 @@ class HiCAssembler:
                 if split_misassemblies:
                     # try to find contigs that probably should be separated
                     self.split_misassemblies(hic_file_name, split_positions_file)
-                    # build scaffolds graph. Bins on the same contig are
-                    # put together into a path (a type of graph with max degree = 2)
-                    self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
-                    self.plot_matrix(self.out_folder + "/after_split_assembly.pdf",
-                                     title="After split mis-assemblies assembly", add_vlines=True)
 
                 log.info("Merging bins of file to reduce resolution")
                 binsize = self.hic.getBinSize()
@@ -132,11 +127,12 @@ class HiCAssembler:
             self.hic.matrix.data = np.log1p(self.hic.matrix.data)
 
 
-        #self.remove_noise_from_matrix()
-
         # build scaffolds graph. Bins on the same contig are
         # put together into a path (a type of graph with max degree = 2)
         self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
+        self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
+        self.plot_matrix(self.out_folder + "/before_assembly.pdf",
+                         title="After split mis-assemblies assembly", add_vlines=True)
 
         mat_size = self.hic.matrix.shape[:]
         # remove contigs that are too small
@@ -636,8 +632,9 @@ class HiCAssembler:
                     # the two backbones are not on the sides of the path.
                     continue
 
-                # check that the backbone nodes are adjacent in
-                # the scaffolds path
+                # check if the backbone nodes are adjacent in
+                # the hic-scaffolds. That means the removed path
+                # should be inserted between them.
                 if path[0] in self.scaffolds_graph.scaffold.adj[path[-1]]:
                     # remove one of the back bones of the graph and continue
                     log.debug("Removing on backbone scaffold from branch with two backbones")

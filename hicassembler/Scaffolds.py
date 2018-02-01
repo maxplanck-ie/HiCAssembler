@@ -1633,14 +1633,26 @@ class Scaffolds(object):
         matrix.eliminate_zeros()
 
         # remove all contacts that are within paths
-        to_remove = []
+        internal_nodes = []
         paths = self.get_all_paths(pg_base=True)
         for path in paths:
             if len(path) > 3:
-                to_remove.extend(path[1:-1])
+                internal_nodes.extend(path[1:-1])
 
         # get the node degree from the source  matrix.
         node_degree = dict([(x, matrix[x, :].nnz) for x in range(matrix.shape[0])])
+
+        # remove hubs from internal nodes
+        for node in internal_nodes:
+            if node_degree[node] > 2:
+                # get the bin id of the other nodes that link with the query node
+                adj_nodes = np.flatnonzero(matrix[10,:].todense().A)
+                for adj_node in adj_nodes:
+                    if adj_node not in self.pg_base[node]:
+                        # remove the contact between node and adj_node in the matrix
+                        matrix[node, adj_node] = 0
+                        matrix[adj_node, adj_node] = 0
+        matrix.eliminate_zeros()
 
         # define node degree threshold as the degree for the 90th percentile
         if node_degree_threshold is None:
@@ -1665,15 +1677,15 @@ class Scaffolds(object):
 
                     to_remove.append(node)
 
-        to_remove = np.unique(to_remove)
-        if len(to_remove) > 0:
-            self.matrix[to_remove, :] = 0
-            self.matrix[:, to_remove] = 0
-            matrix[to_remove, :] = 0
-            matrix[:, to_remove] = 0
+            to_remove = np.unique(to_remove)
+            if len(to_remove) > 0:
+                self.matrix[to_remove, :] = 0
+                self.matrix[:, to_remove] = 0
+                matrix[to_remove, :] = 0
+                matrix[:, to_remove] = 0
 
-            matrix.eliminate_zeros()
-            self.matrix.eliminate_zeros()
+                matrix.eliminate_zeros()
+                self.matrix.eliminate_zeros()
 
         self.matrix = matrix
 

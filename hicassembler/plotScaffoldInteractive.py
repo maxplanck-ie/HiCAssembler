@@ -121,13 +121,12 @@ def getRegion(args, ma):
 
     if chrom not in list(ma.interval_trees):
 
-        chrom = change_chrom_names(chrom)
-
         if type(next(iter(ma.interval_trees))) in [np.bytes_, bytes]:
             chrom = toBytes(chrom)
 
         if chrom not in list(ma.interval_trees):
-            exit("Chromosome name {} in --region not in matrix".format(change_chrom_names(chrom)))
+            exit("The contig/scaffold name '{}' given in --region is not part of the Hi-C matrix. "
+                 "Check spelling".format(chrom))
 
     args.region = [chrom, region_start, region_end]
 

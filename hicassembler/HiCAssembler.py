@@ -114,7 +114,10 @@ class HiCAssembler:
         # build scaffolds graph. Bins on the same contig are
         # put together into a path (a type of graph with max degree = 2)
         self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
-        self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
+        to_exclude = ['Backbone_81/13', 'Backbone_60/2', 'Backbone_59/2']
+        for backbone in to_exclude:
+            self.scaffolds_graph._remove_bin_path(self.scaffolds_graph.scaffold.node[backbone]['path'],
+                                                  split_scaffolds=True)
         self.plot_matrix(self.out_folder + "/before_assembly.pdf",
                          title="After split mis-assemblies assembly", add_vlines=True)
 
@@ -135,6 +138,7 @@ class HiCAssembler:
         log.debug("Size of matrix is {}".format(self.scaffolds_graph.hic.matrix.shape[0]))
         for iteration in range(self.num_iterations):
             self.iteration = iteration
+            self.scaffolds_graph.iteration = iteration
             n50 = self.scaffolds_graph.compute_N50()
             self.scaffolds_graph.get_paths_stats()
 
@@ -150,10 +154,8 @@ class HiCAssembler:
                                                              normalize_method='ice')
                 stats = self.scaffolds_graph.get_stats_per_split()
                 try:
-                    if iteration == 1:
-                        conf_score = stats[2]['median']
-                    else:
-                        conf_score = stats[2]['median'] * (1.0 / (iteration + 1))
+                    # conf_score = stats[2]['median'] * (0.8 / (iteration + 1))
+                    conf_score = stats[2]['median'] * 0.9
                 # if the scaffolds are all very small, the get_stats_per_split
                 # many not have enough information to compute, thus a second
                 # method to identify confidence score is used

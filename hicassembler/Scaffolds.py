@@ -94,6 +94,8 @@ class Scaffolds(object):
         # initialize the contigs directed graph
         self._init_path_graph()
 
+        self.iteration = 0
+
     def _init_path_graph(self):
         """Uses the hic information for each row (cut_intervals)
         to initialize a path graph in which each node corresponds to
@@ -266,7 +268,7 @@ class Scaffolds(object):
 
         >>> S.remove_small_paths(20)
 
-        The paths that are smaller or equal to 20 are the one corresponding to c-2 and c-3.
+        The paths that are smaller or equal to 20 are c-2 and c-3.
         thus, only the path of 'c-0' is kept
         >>> S.matrix_bins.path.values()
         [[0, 1, 2]]
@@ -1316,7 +1318,7 @@ class Scaffolds(object):
                                           'max': np.max(v),
                                           'min': np.min(v),
                                           'len': len(v)}
-            if len(v) < 10:
+            if len(v) < 10 and k < 10:
                 log.warn('stats for distance {} contain only {} samples'.format(k, len(v)))
         return consolidated_dist_value
 
@@ -1694,12 +1696,12 @@ class Scaffolds(object):
             # then nothing is left to do.
             return
         nxG = self.make_nx_graph()
-        nx.write_graphml(nxG, "{}/ice_mst_pre_mst{}.graphml".format(self.out_folder, self.matrix.shape[0]))
+        nx.write_graphml(nxG, "{}/pre_mst_iter_{}.graphml".format(self.out_folder, self.iteration))
         # compute maximum spanning tree
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
-        log.debug("saving maximum spanning tree network {}/ice_mst_{}.graphml".format(self.out_folder,
-                                                                                      self.matrix.shape[0]))
-        nx.write_graphml(nxG, "{}/ice_mst_{}.graphml".format(self.out_folder, self.matrix.shape[0]))
+        log.debug("saving maximum spanning tree network {}/mst_iter_{}.graphml".format(self.out_folder,
+                                                                                      self.iteration))
+        nx.write_graphml(nxG, "{}/mst_iter_{}.graphml".format(self.out_folder, self.iteration))
         degree = np.array(dict(nxG.degree()).values())
         if len(degree[degree > 2]):
             # count number of hubs
@@ -1765,19 +1767,6 @@ class Scaffolds(object):
                 # check, that the paths_tho_check do not contain hubs
                 if len(paths_to_check) > 1:
                     check = True
-                    """
-                    for _path in paths_to_check:
-                        for _node in _path:
-                            if node_degree[_node] >= node_degree_threshold:
-                                log.debug("degree {}".format(node_degree[_node]))
-                                log.debug("{} in path {} is hub. Discarding {}".format(_node, _path, paths_to_check))
-                                check = False
-                                break
-                    if check is True:
-                        pass
-                    else:
-                        import ipdb;ipdb.set_trace()
-                    """
 
                     solved_paths.append(Scaffolds.find_best_permutation(self.matrix, paths_to_check))
                     log.debug("best permutation: {}".format(solved_paths[-1]))
@@ -1876,7 +1865,23 @@ class Scaffolds(object):
                 # check if node already is inside a path
                 if len(self.pg_base.adj[node]) == 2:
                     # this could indicate a problematic case
-                    log.info("Hub node is alredy inside a path {}".format(node))
+                    log.info("Hub node is already inside a path {},  node_id:{}".format(G.node[node]['name'], node))
+
+                # prune single nodes but only on first iteration. Single nodes are defined as:
+                #            o  <- single node
+                #           /
+                #  o---o---o----o---o
+                # a single node, is a node adj to a hub, whose other adj nodes have all degree 2
+                # adj_degree looks like: [(90, 2), (57, 2), (59, 1)], where is tuple is (node_id, degree)
+                adj_degree = sorted([(x, node_degree_mst[x]) for x in G.adj[node].keys()], key=lambda(k,v): v)[::-1]
+                if self.iteration == 0 and len(adj_degree) == 3 and adj_degree[0][1] == 2 and adj_degree[1][1] and adj_degree[2][1] == 1:
+                    node_to_prune = adj_degree[2][0]
+                    log.debug("Pruning single node: {}".format(G.node[node_to_prune]['name']))
+                    G.remove_node(node_to_prune)
+                    self._remove_bin_path(self.pg_base.node[node_to_prune]['initial_path'], split_scaffolds=True)
+                    continue
+                # the adj variable looks like:
+                # [(90, {'weight': 1771.3}), (57, {'weight': 2684.6}), (59, {'weight': 14943.6})]
                 adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
                 # remove the weakest edges but only if either of the nodes is not a hub
                 for adj_node, attr in adj[:-2]:
@@ -1884,14 +1889,17 @@ class Scaffolds(object):
                         log.warn("\n\nHub-hub contact for bin_id:{}\tscaffold: {}\tdegree: {}\n"
                                  "with bin_id: {}\tscaffold: {}\tdegree:{}\n\n"
                                  "##############\n"
-                                 "these cases could introduce problems in the assembly\n"
+                                 "these cases could introduce problems in the assembly.\n"
+                                 "Thus, node is being removed from the graph.\n"
                                  "##############\n\n".format(node, self.pg_base.node[node]['name'],
                                                              len(G.adj[node]), adj_node,
                                                              self.pg_base.node[adj_node]['name'],
                                                              len(G.adj[adj_node])))
-                        # # adj node is hub. It this case remove the node from the graph
-                        # import ipdb;ipdb.set_trace()
-                        # self.delete_edge_from_matrix_bins(node)
+
+                        # adj node is hub. In this case remove the node from the graph
+                        G.remove_node(node)
+                        self._remove_bin_path(self.pg_base.node[node]['initial_path'], split_scaffolds=True)
+                        continue
                     log.debug("Removing weak edge {}-{} weight: {}".format(G.node[node]['name'],
                                                                            G.node[adj_node]['name'],
                                                                            attr['weight']))
@@ -1903,16 +1911,6 @@ class Scaffolds(object):
         for path in Scaffolds._return_paths_from_graph(G):
             self.add_path(path)
 
-        # for u, v, data in sorted(G.edges(data=True), key=lambda x: x[2]['weight'], reverse=True):
-        #     if u in self.pg_base[v]:
-        #         # skip same path nodes
-        #         continue
-        #     else:
-        #         try:
-        #             self.add_edge(u, v, weight=data['weight'])
-        #         except ScaffoldException as e:
-        #             log.warn(e)
-        #             pass
 
     def add_path(self, path):
         """
@@ -2150,8 +2148,6 @@ class Scaffolds(object):
             scaff_direction = '+' if self.scaffold.node[scaff]['path'][0] < self.scaffold.node[scaff]['path'][-1] else "-"
             # this check is only for scaffolds with only more than one bin
             if len(self.scaffold.node[scaff]['path']) > 1:
-                if self.scaffold.node[scaff]['direction'] != scaff_direction:
-                    import ipdb; ipdb.set_trace()
                 assert self.scaffold.node[scaff]['direction'] == scaff_direction, "mismatch with scaffold direction"
 
 

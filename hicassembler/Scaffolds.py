@@ -1934,10 +1934,15 @@ class Scaffolds(object):
                 adj_degree = sorted([(x, node_degree_mst[x]) for x in G.adj[node].keys()], key=lambda(k,v): v)[::-1]
                 if self.iteration == 0 and len(adj_degree) == 3 and adj_degree[0][1] == 2 and adj_degree[1][1] and adj_degree[2][1] == 1:
                     node_to_prune = adj_degree[2][0]
-                    log.debug("Pruning single node: {}".format(G.node[node_to_prune]['name']))
-                    G.remove_node(node_to_prune)
-                    self._remove_bin_path(self.pg_base.node[node_to_prune]['initial_path'], split_scaffolds=True)
-                    continue
+                    # check that the node is not part of an split scaffold. If that
+                    # is the case, do not remove it. To check if a node is part of an split scaffold
+                    # what needs to be done is to check if it belongs to a path that is larger than 1.
+                    # calling self.pg_base[x] will return the path containing node x
+                    if len(self.pg_base[node_to_prune]) == 1:
+                        log.debug("Pruning single node: {}".format(G.node[node_to_prune]['name']))
+                        G.remove_node(node_to_prune)
+                        self._remove_bin_path(self.pg_base.node[node_to_prune]['initial_path'], split_scaffolds=True)
+                        continue
                 # the adj variable looks like:
                 # [(90, {'weight': 1771.3}), (57, {'weight': 2684.6}), (59, {'weight': 14943.6})]
                 adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
@@ -1954,10 +1959,17 @@ class Scaffolds(object):
                                                              self.pg_base.node[adj_node]['name'],
                                                              len(G.adj[adj_node])))
 
-                        # adj node is hub. In this case remove the node from the graph
-                        G.remove_node(node)
-                        self._remove_bin_path(self.pg_base.node[node]['initial_path'], split_scaffolds=True)
-                        continue
+                        # adj node is hub. In this case remove the node and the scaffold it belongs
+                        # to from the graph
+                        path  = len(self.pg_base[node])
+                        # only remove if the path is not longer than 5. Otherwise
+                        # a quite large scaffold can be removed.
+                        if len(path) < 5:
+                            for node_id in path:
+                                G.remove_node(node_id)
+                            self._remove_bin_path(self.pg_base.node[node]['initial_path'], split_scaffolds=True)
+                            continue
+
                     log.debug("Removing weak edge {}-{} weight: {}".format(G.node[node]['name'],
                                                                            G.node[adj_node]['name'],
                                                                            attr['weight']))

@@ -43,7 +43,7 @@ class HiCAssembler:
                  split_positions_file=None,
                  min_scaffold_length=MIN_LENGTH, matrix_bin_size=25000, use_log=False,
                  num_processors=5, misassembly_zscore_threshold=ZSCORE_THRESHOLD,
-                 num_iterations=2):
+                 num_iterations=2, scaffolds_to_ignore=None):
         """
         Prepares a hic matrix for assembly.
         It is expected that initial contigs or scaffolds contain bins
@@ -85,28 +85,7 @@ class HiCAssembler:
         else:
             log.info("Loading Hi-C matrix ... ")
             # check if a lower resolution matrix is available
-            merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"            # check if
-            if os.path.isfile(merged_bins_matrix_file):
-                log.info("Found reduced matrix file {}".format(merged_bins_matrix_file))
-                self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
-            else:
-                self.hic = HiCMatrix.hiCMatrix(hic_file_name)
-
-                if split_misassemblies:
-                    # try to find contigs that probably should be separated
-                    self.split_misassemblies(hic_file_name, split_positions_file)
-
-                log.info("Merging bins of file to reduce resolution")
-                binsize = self.hic.getBinSize()
-                if binsize < matrix_bin_size:
-                    # make an smaller matrix having bins of around 25.000 bp
-                    num_bins = matrix_bin_size / binsize
-
-                    log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
-                    self.hic = HiCAssembler.merge_bins(self.hic, num_bins)
-
-                self.hic.save(merged_bins_matrix_file)
-                self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
+            self.load_hic_matrix(hic_file_name, split_misassemblies, split_positions_file, matrix_bin_size)
 
         if use_log:
             self.hic.matrix.data = np.log1p(self.hic.matrix.data)
@@ -114,10 +93,15 @@ class HiCAssembler:
         # build scaffolds graph. Bins on the same contig are
         # put together into a path (a type of graph with max degree = 2)
         self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
-        to_exclude = ['Backbone_81/13', 'Backbone_60/2', 'Backbone_59/2']
-        for backbone in to_exclude:
-            self.scaffolds_graph._remove_bin_path(self.scaffolds_graph.scaffold.node[backbone]['path'],
-                                                  split_scaffolds=True)
+
+        if scaffolds_to_ignore is not None:
+            for scaffold in scaffolds_to_ignore:
+                log.info("Removing scaffold {} from assembly".format(scaffold))
+                if scaffold in self.scaffolds_graph.scaffold.node:
+                    self.scaffolds_graph._remove_bin_path(self.scaffolds_graph.scaffold.node[scaffold]['path'],
+                                                          split_scaffolds=True)
+                else:
+                    log.warn("Scaffold {} is not part of the assembly".format(scaffold))
         self.plot_matrix(self.out_folder + "/before_assembly.pdf",
                          title="After split mis-assemblies assembly", add_vlines=True)
 
@@ -127,6 +111,46 @@ class HiCAssembler:
         assert mat_size == self.scaffolds_graph.hic.matrix.shape
 
         self.N50 = []
+
+    def load_hic_matrix(self, hic_file_name, split_misassemblies, split_positions_file, matrix_bin_size):
+        """
+        Checks if a already processed matrix is present and loads it. If not
+        the high resolution matrix is loaded, the misasemblies are
+        split and the lower resolution matrix is saved.
+
+        Parameters
+        ----------
+        hic_file_name name of a hic file or a HiCMatrix object
+        split_misassemblies bool If true, the TAD calling algorithm is used to identify misassemblies
+        split_positions_file file containing manual split positions in bed format
+        matrix_bin_size bin size of matrix
+        Returns
+        -------
+
+        """
+
+        merged_bins_matrix_file = self.out_folder + "/hic_merged_bins_matrix.h5"
+        if os.path.isfile(merged_bins_matrix_file):
+            log.info("Found reduced matrix file {}".format(merged_bins_matrix_file))
+            self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
+        else:
+            self.hic = HiCMatrix.hiCMatrix(hic_file_name)
+
+            if split_misassemblies:
+                # try to find contigs that probably should be separated
+                self.split_misassemblies(hic_file_name, split_positions_file)
+
+            log.info("Merging bins of file to reduce resolution")
+            binsize = self.hic.getBinSize()
+            if binsize < matrix_bin_size:
+                # make an smaller matrix having bins of around 25.000 bp
+                num_bins = matrix_bin_size / binsize
+
+                log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
+                self.hic = HiCAssembler.merge_bins(self.hic, num_bins)
+
+            self.hic.save(merged_bins_matrix_file)
+            self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
 
     def assemble_contigs(self):
         """
@@ -154,7 +178,9 @@ class HiCAssembler:
                                                              normalize_method='ice')
                 stats = self.scaffolds_graph.get_stats_per_split()
                 try:
-                    # conf_score = stats[2]['median'] * (0.8 / (iteration + 1))
+                    # stats[2] contains the mean, median, max, min and len(number of samples)
+                    # for bins whose start position is about the distance of two
+                    # bins or in other words that are separated by one bin
                     conf_score = stats[2]['median'] * 0.9
                 # if the scaffolds are all very small, the get_stats_per_split
                 # many not have enough information to compute, thus a second
@@ -201,12 +227,13 @@ class HiCAssembler:
 
         return self.get_contig_order()
 
-    def make_scaffold_network(self, orig_scaff):
+    def make_scaffold_network(self, orig_scaff, confidence_score=None):
         """
 
         Parameters
         ----------
         orig_scaff
+        confidence_score minimum value in the matrix
 
         Returns
         -------
@@ -262,9 +289,13 @@ class HiCAssembler:
             nxG.add_node(node_id, **nn)
 
         matrix = orig_scaff.matrix.tocoo()
+        matrix.setdiag(0)
+
         max_weight = float(orig_scaff.matrix.max() * 1.5)
         for u, v, weight in zip(matrix.row, matrix.col, matrix.data):
             if u == v:
+                continue
+            if weight < confidence_score:
                 continue
             scaff_u = orig_scaff.pg_base.node[u]['name']
             scaff_v = orig_scaff.pg_base.node[v]['name']
@@ -273,6 +304,12 @@ class HiCAssembler:
                scaff_v in self.scaffolds_graph.scaffold.node and \
                scaff_u in self.scaffolds_graph.scaffold.adj[scaff_v]:
                 # u and v are directly joined
+                nxG.add_edge(scaff_u, scaff_v, weight=float(max_weight))
+
+        # add all contacts between assembled nodes that may not habe been
+        # present in the graph
+        for path in self.scaffolds_graph.scaffold.get_all_paths():
+            for scaff_u, scaff_v in zip(path[:-1], path[1:]):
                 nxG.add_edge(scaff_u, scaff_v, weight=float(max_weight))
 
         return nxG
@@ -303,7 +340,7 @@ class HiCAssembler:
 
         Returns
         -------
-        None
+        G
         """
         node_degree_mst = dict(G.degree(G.node.keys()))
         for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k, v): v, reverse=True):
@@ -365,7 +402,7 @@ class HiCAssembler:
         """
         Returns all paths that contain the backbone
 
-        The graph used should not contains nodes with degree > 2 execpt for the
+        The graph used should not contain nodes with degree > 2 except for the
         backbone node: eg.
 
          o--*--o--o
@@ -554,13 +591,23 @@ class HiCAssembler:
 
         >>> shutil.rmtree(dirpath)
        """
+        log.info("Total assembly length before adding scaffolds back: {:,}".
+                 format(self.scaffolds_graph.get_assembly_length()[0]))
 
+        # create orig_scaff once using a min_scaffold length as size target to
+        # compute confidence scores
+        orig_scaff = Scaffolds(self.hic)
+        orig_scaff.split_and_merge_contigs(num_splits=1, target_size=self.min_scaffold_length, normalize_method=normalize_method)
+        orig_stats = orig_scaff.get_stats_per_split()
+        conf_score = orig_stats[1]['median']
+
+        # re make orig_scaff a second time without splitting the scaffolds
+        # as this is the structure needed for rest of the programm
         orig_scaff = Scaffolds(self.hic)
         orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method=normalize_method)
-
         # reset pb_base
         self.scaffolds_graph.pg_base = copy.deepcopy(self.scaffolds_graph.matrix_bins)
-        nxG = self.make_scaffold_network(orig_scaff)
+        nxG = self.make_scaffold_network(orig_scaff, confidence_score=conf_score)
 
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
         nx.write_graphml(nxG, self.out_folder + "/mst_for_small_Scaff_integration.graphml".format())
@@ -568,7 +615,7 @@ class HiCAssembler:
         # 1. Identify branches
 
         # delete backbone nodes that are not adjacent to a removed scaffold (removed scaffolds are those
-        # small contig/scaffolds removed at the beginning that are stores in the self.scaffolds_graph.remove_scaffolds.
+        # small contig/scaffolds removed at the beginning that are stored in the self.scaffolds_graph.remove_scaffolds.
         # Basically, all so called backbone nodes that are not connected to the scaffolds that we want to put back
         # are deleted.
         for node_id in self.scaffolds_graph.scaffold.node.keys():
@@ -582,19 +629,48 @@ class HiCAssembler:
             if 'is_backbone' in nxG.node[u] and 'is_backbone' in nxG.node[v]:
                 nxG.remove_edge(u, v)
 
-        # now each connected component should only have  a backbone node
+        nx.write_graphml(nxG, "{}/backbone_put_back_scaffolds.graphml".format(self.out_folder))
+        # now each connected component should only have a backbone node
         # and all the connected scaffolds that belong to that node.
         for branch in list(nx.connected_component_subgraphs(nxG)):
-            if len(branch) > 10:
+            branch_len = sum([branch.node[x]['length'] for x in branch])
+            branch_nodes = [x for x in branch]
+            log.debug("Checking branch for insertion in assembly.\nLength:{}\nScaffolds:{}".
+                      format(branch_len, branch_nodes))
+            if len(branch) > 20:
                 log.info("Skipping the insertion of a branch that is too long. "
-                         "The length of the branch is: {} (threshold is 10)".format(len(branch)))
+                         "The length of the branch is: {} (threshold is 20)".format(len(branch)))
                 continue
             # after removing the hubs the branch may contain several connected components. Only the component
             # that contains a backbone node is used.
             backbone_list = HiCAssembler._find_backbone_node(branch)
 
             if len(backbone_list) == 0:
+                if len(branch_nodes) == 1:
+                    continue
+                # this is a branch without a backbone and is inserted as a separated
+                # hic-scaffold
+                branch = HiCAssembler._remove_weakest(branch)
+                path = Scaffolds._return_paths_from_graph(branch)[0]
+
+                for scaff_name in path:
+                    # restore all scaffolds except for path[0] which is the backbone node (and was not removed)
+                    self.scaffolds_graph.restore_scaffold(scaff_name)
+
+                # get the matrix bin paths for each scaffold
+                bins_path = [self.scaffolds_graph.scaffold.node[x]['path'] for x in path]
+
+                # a. find the best orientation of the scaffold paths with respect to each other
+                #     the best path contains the bins_path in the best computed orientations
+                # best_path[0] is the backbone scaffold path
+                best_path = Scaffolds.find_best_permutation(orig_scaff.hic.matrix, bins_path,
+                                                            only_expand_but_not_permute=True)
+                # b. add edges in the path
+                for path_u, path_v in zip(best_path[:-1], best_path[1:]):
+                    self.scaffolds_graph.add_edge_matrix_bins(path_u[-1], path_v[0])
+
                 log.debug("No backbone found for branch with nodes: {}".format(branch.node.keys()))
+                log.info("Scaffolds without a backbone node were added: {}".format(path))
                 continue
 
             # each branch should contain at most two backbone node
@@ -624,13 +700,13 @@ class HiCAssembler:
                 # should be inserted between them.
                 if path[0] in self.scaffolds_graph.scaffold.adj[path[-1]]:
                     # remove one of the back bones of the graph and continue
-                    log.debug("Removing on backbone scaffold from branch with two backbones")
+                    log.debug("Removing one backbone scaffold from branch with two backbones")
                     branch.remove_node(path[-1])
-                    self.insert_path(path, orig_scaff)
+                    self.insert_path(path[:-1], orig_scaff)
                     continue
                 else:
                     # the backbones belong to different hic-scaffolds
-                    # the path is splitted by the weakest edge.
+                    # the path is split by the weakest edge.
                     min_weight = np.Inf
                     for u, v, attr in branch.edges(data=True):
                         if attr['weight'] < min_weight:
@@ -683,6 +759,7 @@ class HiCAssembler:
                 for path in HiCAssembler._get_paths_from_backbone(branch, backbone_node):
                     self.insert_path(path, orig_scaff)
 
+        log.info("Total assembly length after adding scaffolds back: {:,}".format(self.scaffolds_graph.get_assembly_length()[0]))
         return
 
     def insert_path(self, path, orig_scaff):

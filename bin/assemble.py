@@ -92,67 +92,17 @@ def parse_arguments(args=None):
                              'file becomes the last bin before the split.',
                         required=False)
 
+    parser.add_argument('--scaffolds_to_ignore',
+                        help='The assembly process is affected by scaffolds that appear close to several other '
+                             'scaffolds. Normally, for each scaffold a pair of neighbors can be identified, however '
+                             'for some scaffolds several neighbors are found. These problematic scaffolds could be '
+                             'caused by misassemblies, duplications or repetitive regions. Usually, better assemblies '
+                             'are produced by removing this scaffolds initially. Then, when most of the scaffolds are '
+                             'as assembled, the algorithm will try to place those scaffolds back into the assembly. '
+                             'The scaffolds should be separated by space: e.g. scaffold_10 scafold_32 scaffold_27',
+                        nargs='+',
+                        required=False)
     return parser.parse_args(args)
-
-
-def dot_plot_super_contigs(super_contigs):
-    import matplotlib
-    matplotlib.use('Agg')
-    from matplotlib import pyplot as plt
-
-    num_chroms = len(super_contigs.keys())
-    fig = plt.figure(figsize=(8 * num_chroms, 8))
-    for index, (chrom, paths) in enumerate(super_contigs.iteritems()):
-        ax = fig.add_subplot(1, num_chroms, index+1)
-        ax.set_title(chrom)
-        start = 0
-        vlines = []
-        for path in paths:
-            vlines.append(start)
-            for contig in path:
-                contig_len = abs(contig[1] - contig[0])
-                end = start + contig_len
-                ax.plot((start, end), (contig[0], contig[1]))
-                ax.scatter((start, end), (contig[0], contig[1]), s=3)
-                start = end + 1
-        y_min, y_max = ax.get_ylim()
-        ax.vlines(vlines, y_min, y_max, linestyles="dotted", colors='gray', alpha=0.5)
-
-    plt.savefig("/tmp/test.pdf")
-
-
-def evaluate_super_contigs(super_contigs):
-    from collections import defaultdict
-    super_check_list = defaultdict(list)
-    for s_contig in super_contigs:
-        check_list = []
-        for contig in s_contig:
-            # check if the join is correct
-            name, direction = contig
-            name = name.replace("(-)", ":minus").replace("(+)", ":plus").replace('-', ':')
-            try:
-                chrom, start, end, strand = name.split(':')
-            except:
-                import ipdb;ipdb.set_trace()
-            start = int(start)
-            end = int(end)
-            if strand == 'minus':
-                start, end = end, start
-
-            if direction == '-':
-                start, end = end, start
-            check_list.append([start, end])
-
-        if check_list[0][0] > check_list[-1][-1]:
-            # revert check list such that the start of the first tuple is the smaller value
-            check_list = [x[::-1] for x in check_list][::-1]
-        if sorted(sum(check_list,[])) != sum(check_list, []):
-            formatted_paths = []
-            for c_path in check_list:
-                formatted_paths.append(["{:,}".format(x) for x in c_path])
-            log.warn("Problem with {}".format(formatted_paths))
-        super_check_list[chrom].append(check_list)
-    dot_plot_super_contigs(super_check_list)
 
 
 def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, contig_separator='N'*5000,
@@ -312,7 +262,8 @@ def main(args):
                                         num_processors=args.num_processors,
                                         misassembly_zscore_threshold=args.misassembly_zscore_threshold,
                                         split_positions_file=args.split_positions_file,
-                                        num_iterations=args.num_iterations)
+                                        num_iterations=args.num_iterations,
+                                        scaffolds_to_ignore=args.scaffolds_to_ignore)
 
     super_contigs = assembl.assemble_contigs()
     save_fasta(args.fasta, args.outFolder + "/super_scaffolds.fa", super_contigs,

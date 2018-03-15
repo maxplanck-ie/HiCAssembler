@@ -415,6 +415,62 @@ class Scaffolds(object):
 
         self.removed_bins.delete_path_containing_node(path[0], delete_nodes=True)
         self.removed_scaffolds.delete_path_containing_node(scaffold_name, delete_nodes=True)
+    def restore_scaffold(self, scaffold_name):
+        """
+
+        Examples
+        --------
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.remove_small_paths(20)
+        >>> list(S.removed_scaffolds.get_all_paths())
+        [['c-3'], ['c-2']]
+        >>> S.restore_scaffold('c-2')
+        >>> list(S.removed_scaffolds.get_all_paths())
+        [['c-3']]
+        >>> list(S.scaffold.get_all_paths())
+        [['c-2'], ['c-0']]
+        >>> list(S.matrix_bins.get_all_paths())
+        [[0, 1, 2], [3, 4]]
+        >>> list(S.removed_bins.get_all_paths())
+        [[5]]
+
+        Test restore when the removed scaffold is already joined to other scaffold
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 50, 1),
+        ... ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals)
+        >>> S = Scaffolds(hic)
+        >>> S.add_edge(4, 5)
+        >>> list(S.scaffold.get_all_paths())
+        [['c-2', 'c-3'], ['c-0']]
+        >>> list(S.matrix_bins.get_all_paths())
+        [[0, 1, 2], [3, 4, 5]]
+        >>> S.remove_small_paths(30)
+        >>> S.restore_scaffold('c-2')
+        >>> list(S.scaffold.get_all_paths())
+        [['c-2', 'c-3'], ['c-0']]
+        >>> list(S.matrix_bins.get_all_paths())
+        [[0, 1, 2], [3, 4, 5]]
+        """
+        scaff_path = self.removed_scaffolds[scaffold_name]
+        if scaffold_name in self.removed_scaffolds.path_id:
+            path_id = self.removed_scaffolds.path_id[scaffold_name]
+            self.scaffold.add_path(scaff_path, name=path_id)
+        bin_0 = self.removed_scaffolds.node[scaffold_name]['path'][0]
+        if bin_0 in self.removed_bins.path_id:
+            matrix_bin_path = self.removed_bins[bin_0]
+            matrix_path_id = self.removed_bins.path_id[bin_0]
+            self.matrix_bins.add_path(matrix_bin_path, name=matrix_path_id)
+        for scaff_name in scaff_path:
+            self.scaffold.add_node(scaff_name, **self.removed_scaffolds.node[scaff_name])
+            path = self.removed_scaffolds.node[scaff_name]['path']
+            for bin_node in path:
+                self.matrix_bins.add_node(bin_node, **self.removed_bins.node[bin_node])
+
+        self.removed_bins.delete_path_containing_node(path[0], delete_nodes=True)
+        self.removed_scaffolds.delete_path_containing_node(scaffold_name, delete_nodes=True)
 
     def remove_small_paths_bk(self, min_length):
         """
@@ -1257,18 +1313,15 @@ class Scaffolds(object):
     def get_stats_per_split(self):
         """
         takes the information from all bins that are split
-        or merged and returns two values and two vectors. The
-        values are the average length used and the sd.
-        The vectors are: one containing the number of contacts found for such
-        distance and the third one containing the normalized
-        contact counts for different distances.
-        The distances are 'bin' distance. Thus,
-        if two bins are next to each other, they are at distance 1
+        or merged and returns the a dictionary whose key is the distance between split bins
+        being 1, bins that are consecutive (or that the start positions are 1 bins apart),
+        2 bins that are separated by one bin etc. The values of the dictionary are itself a dictionary
+        whose keys are: mean, median, max, min and len and reflect the mean, median etc number of contacts. The
+        len is the number of samples that were used to derive the information.
 
         Returns
         -------
-        mean bin length, std bin length, dict containing as key the bin distance
-        and as values a dict with mean, median, max, min and len
+        dictionary as explained previously
 
         Examples
         --------
@@ -1277,9 +1330,15 @@ class Scaffolds(object):
         ... ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
-        >>> mean, sd, stats = S.get_stats_per_distance()
+        >>> stats = S.get_stats_per_split()
         >>> stats[2]['mean']
         4.25
+
+        >>> stats.keys()
+        [1, 2, 3, 4, 5]
+
+        >>> stats[1]
+        {'max': 15, 'min': 1, 'median': 7.0, 'len': 5, 'mean': 7.4000000000000004}
 
         """
         log.info("Computing stats per distance")
@@ -1307,8 +1366,7 @@ class Scaffolds(object):
                 if distance not in dist_dict:
                     dist_dict[distance] = sub_m.data[dist_list == distance]
                 else:
-                    dist_dict[distance] = np.hstack([dist_dict[distance],
-                                                     sub_m.data[dist_list == distance]])
+                    dist_dict[distance] = np.hstack([dist_dict[distance], sub_m.data[dist_list == distance]])
 
         # consolidate data:
         consolidated_dist_value = dict()

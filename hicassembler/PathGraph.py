@@ -337,7 +337,7 @@ class PathGraph(object):
         if node in self.path_id:
             name = self.path_id[node]
         else:
-            name = node
+            name = self.node[node]['name']
         return name
 
     def add_edge(self, u, v, name=None, return_direction=False, attr_dict=None, **attr):

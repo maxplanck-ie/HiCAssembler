@@ -306,7 +306,7 @@ class HiCAssembler:
                 # u and v are directly joined
                 nxG.add_edge(scaff_u, scaff_v, weight=float(max_weight))
 
-        # add all contacts between assembled nodes that may not habe been
+        # add all contacts between assembled nodes that may not have been
         # present in the graph
         for path in self.scaffolds_graph.scaffold.get_all_paths():
             for scaff_u, scaff_v in zip(path[:-1], path[1:]):
@@ -455,7 +455,7 @@ class HiCAssembler:
 
     def put_back_small_scaffolds(self, normalize_method='ice'):
         """
-        Identifies scaffolds that where removed from the Hi-C assembly and
+        Identifies scaffolds that were removed from the Hi-C assembly and
         tries to find their correct location.
         Returns
         -------
@@ -602,7 +602,7 @@ class HiCAssembler:
         conf_score = orig_stats[1]['median']
 
         # re make orig_scaff a second time without splitting the scaffolds
-        # as this is the structure needed for rest of the programm
+        # as this is the structure needed for rest of the program
         orig_scaff = Scaffolds(self.hic)
         orig_scaff.split_and_merge_contigs(num_splits=1, normalize_method=normalize_method)
         # reset pb_base

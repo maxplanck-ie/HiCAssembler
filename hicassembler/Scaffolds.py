@@ -1706,9 +1706,9 @@ class Scaffolds(object):
         for node in internal_nodes:
             if node_degree[node] > 2:
                 # get the bin id of the other nodes that link with the query node
-                adj_nodes = np.flatnonzero(matrix[10,:].todense().A)
+                adj_nodes = np.flatnonzero(matrix[node, :].todense().A)
                 for adj_node in adj_nodes:
-                    if adj_node not in self.pg_base[node]:
+                    if adj_node not in self.pg_base.adj[node].keys():
                         # remove the contact between node and adj_node in the matrix
                         matrix[node, adj_node] = 0
                         matrix[adj_node, adj_node] = 0

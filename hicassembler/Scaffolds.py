@@ -96,6 +96,9 @@ class Scaffolds(object):
 
         self.iteration = 0
 
+        nxG = self.make_nx_of_path_graph()
+        nx.write_graphml(nxG, "{}/matrix_bins_{}.graphml".format(self.out_folder, self.iteration))
+
     def _init_path_graph(self):
         """Uses the hic information for each row (cut_intervals)
         to initialize a path graph in which each node corresponds to
@@ -2020,7 +2023,98 @@ class Scaffolds(object):
             best_path = Scaffolds.find_best_direction(self.hic.matrix, bins_path)
 
         for path_u, path_v in zip(best_path[:-1], best_path[1:]):
-            self.add_edge_matrix_bins(path_u[-1], path_v[0])
+            if np.random.rand() < 0.65 or self.iteration >= 2:
+                self.add_edge_matrix_bins(path_u[-1], path_v[0])
+
+    def make_nx_of_path_graph(self):
+        """
+        makes a networkx graph based on the current paths and matrix. For the links between nodes
+        in the same path, the weight is set to the matrix maximum + 1.
+
+        Returns
+        -------
+
+        >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
+        ... ('c-1', 10, 20, 1), ('c-2', 20, 30, 1), ('c-3', 30, 40, 1)]
+        >>> A = csr_matrix(np.array([[2,2,1,1,1,1],[2,2,1,1,1,1],
+        ... [1,1,1,1,1,1], [1,1,1,1,1,1], [1,1,1,1,1,1], [1,1,1,1,1,1]]))
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
+        >>> S = Scaffolds(hic)
+        >>> S.matrix.todense()
+        matrix([[4, 4, 2, 2, 2, 2],
+                [4, 4, 2, 2, 2, 2],
+                [2, 2, 2, 2, 2, 2],
+                [2, 2, 2, 2, 2, 2],
+                [2, 2, 2, 2, 2, 2],
+                [2, 2, 2, 2, 2, 2]])
+
+        >>> G = S.make_nx_graph()
+
+        the edges for adjacent nodes in the same path, should had as weight
+        the max value of the matrix +1.
+        For this example, the paths are [0, 1, 2] and [3, 4, 5]. Thus, the contacts
+        for (0,1) and (1,2) should have a weight of 5.
+        >>> G.adj[0]
+        AtlasView({1: {'weight': 5.0}, 2: {'weight': 2.0}, 3: {'weight': 2.0}, 4: {'weight': 2.0}, 5: {'weight': 2.0}})
+        >>> G.node[0]
+        {'start': 0, 'length': 10, 'end': 10, 'name': 'c-0', 'coverage': 1}
+
+
+        The following matrix is used:
+
+                      ______
+                     |      |
+                 a---b---c--d
+                      \    /
+                       --e--f
+                                0  1  2  3  4  5
+                                a  b  c  d  e  f
+        >>> matrix = np.array([[0, 3, 0, 0, 0, 0], # a 0
+        ...                    [0, 0, 3, 2, 2.5, 0], # b 1
+        ...                    [0, 0, 0, 3, 0, 0], # c 2
+        ...                    [0, 0, 0, 0, 1, 0], # d 3
+        ...                    [0, 0, 0, 0, 0, 3], # e 4
+        ...                    [0, 0, 0, 0, 0, 0]])# f 5
+
+        >>> cut_intervals = [('a', 0, 1, 1), ('b', 1, 2, 1), ('c', 2, 3, 1),
+        ... ('d', 0, 1, 1), ('e', 1, 2, 1), ('f', 0, 1, 1)]
+
+
+        >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
+        >>> S = Scaffolds(hic)
+
+        >>> G = S.make_nx_graph()
+        >>> list(G.edges(data=True))
+        [(0, 1, {'weight': 3.0}), (1, 2, {'weight': 3.0}), \
+(1, 3, {'weight': 2.0}), (1, 4, {'weight': 2.5}), \
+(2, 3, {'weight': 3.0}), (3, 4, {'weight': 1.0}), \
+(4, 5, {'weight': 3.0})]
+        """
+
+        nxG = nx.Graph()
+        path_graph_to_use = self.matrix_bins
+
+        for node_id, node in path_graph_to_use.node.iteritems():
+            # when saving a networkx object, numpy number types or lists, are not accepted
+            nn = node.copy()
+            for attr, value in nn.iteritems():
+                if isinstance(value, np.int64):
+                    nn[attr] = int(value)
+                elif isinstance(value, np.float64):
+                    nn[attr] = float(value)
+                elif isinstance(value, np.string_):
+                    nn[attr] = str(value)
+                elif isinstance(value, list):
+                    nn[attr] = ", ".join([str(x) for x in value])
+            nn['id'] = int(node_id)
+            nxG.add_node(node_id, **nn)
+
+        for path in self.get_all_paths(pg_base=False):
+            for u, v in zip(path[:-1], path[1:]):
+                nxG.add_edge(u, v, weight=float(self.matrix[u, v]))
+
+        return nxG
 
     def make_nx_graph(self):
         """

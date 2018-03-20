@@ -135,6 +135,19 @@ class HiCAssembler:
             self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
         else:
             self.hic = HiCMatrix.hiCMatrix(hic_file_name)
+            binsize = self.hic.getBinSize()
+            if binsize < matrix_bin_size:
+                # make an smaller matrix having bins of around 25.000 bp
+                num_bins = matrix_bin_size / binsize
+
+                log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
+                self.hic = HiCAssembler.merge_bins(self.hic, num_bins)
+
+            self.hic.save(merged_bins_matrix_file)
+            self.hic = HiCMatrix.hiCMatrix(merged_bins_matrix_file)
+            self.scaffolds_graph = Scaffolds(copy.deepcopy(self.hic), self.out_folder)
+            self.plot_matrix(self.out_folder + "/initial_assembly.pdf",
+                             title="initial assembly", add_vlines=True)
 
             if split_misassemblies:
                 # try to find contigs that probably should be separated
@@ -181,12 +194,12 @@ class HiCAssembler:
                     # stats[2] contains the mean, median, max, min and len(number of samples)
                     # for bins whose start position is about the distance of two
                     # bins or in other words that are separated by one bin
-                    conf_score = stats[2]['median'] * 0.9
+                    conf_score = stats[1]['median'] * 1.5
                 # if the scaffolds are all very small, the get_stats_per_split
                 # many not have enough information to compute, thus a second
                 # method to identify confidence score is used
                 except KeyError:
-                    conf_score = np.percentile(self.scaffolds_graph.matrix.data, 5)
+                    conf_score = np.percentile(self.scaffolds_graph.matrix.data, 50)
 
                 log.debug("Confidence score set to {}".format(conf_score))
 
@@ -944,7 +957,8 @@ class HiCAssembler:
             self.hic.removeBins(bins_to_remove)
 
     def plot_matrix(self, filename, title='Assembly results',
-                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None):
+                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None,
+                    shuffle=False):
         """
         Plots the resolved paths on a matrix
 
@@ -1213,6 +1227,7 @@ class HiCAssembler:
         # sort the names alphanumerically.
         if self.scaffolds_graph.scaffold.path == {}:
             scaffold_order = sorted_nicely(list([x for x in self.scaffolds_graph.scaffold]))
+            np.random.shuffle(scaffold_order)
             # after merging, small scaffolds will be removed from the matrix. They need
             # to be removed from scaffold_order before reordering the chromosomes to avoid an error
             scaffold_order = [x for x in scaffold_order if x in hic.chrBinBoundaries.keys()]

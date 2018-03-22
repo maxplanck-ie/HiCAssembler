@@ -1493,6 +1493,11 @@ class Scaffolds(object):
         >>> Scaffolds.find_best_direction(A, [[2, 1, 0], [3, 4, 5], [9, 8, 7, 6]])
         [[0, 1, 2], [3, 4, 5], [6, 7, 8, 9]]
 
+        >>> Scaffolds.find_best_direction(A, [[2, 1, 0], [5, 4, 3], [9, 8, 7, 6]])
+        [[0, 1, 2], [3, 4, 5], [6, 7, 8, 9]]
+
+        >>> Scaffolds.find_best_direction(A, [[9, 8, 7, 6], [5, 4, 3], [2, 1, 0] ])
+        [[9, 8, 7, 6], [5, 4, 3], [2, 1, 0]]
         """
         indices = sum(paths, [])
         ma = ma[indices, :][:, indices]
@@ -1501,15 +1506,29 @@ class Scaffolds(object):
         mapping = dict([(val, idx) for idx, val in enumerate(indices)])
         min_value = np.Inf
         best_path = paths[:]
-        prev_path = None
+        seen = set()
+        # the algorithm takes each part of the path (sub_path),
+        # and computes the bw without flipping and with flipping.
+        # Then takes the direction that produces the smallest bw and
+        # continues with the next part of the path.
+        # This is faster than testing all possible combinations or orientations
+        # For a path with three sub_paths, the number of possible combinations is
+        # 8 (+++, ++-, +-+, +--, -++, -+-, --+, ---) while for this
+        # algorithm then number of combinations is at most 6. In general, for the
+        # exhaustive search the combinations are 2 ** len(path), while for this
+        # algorithm the number of combinations are <= 2 * len(path)
         for idx, sub_path in enumerate(paths):
             if len(sub_path) == 1:
                 continue
-            for sub_path_flipped in [sub_path, sub_path[::-1]]:
-                path_to_test = best_path[:idx] + [sub_path_flipped] + best_path[idx+1:]
-                if prev_path is not None and prev_path == path_to_test:
-                    continue
+            for orientation in ['+', '-']:
+                sub_path_oriented = sub_path[:] if orientation == '+' else sub_path[::-1]
+                # best_path stores in each iteration the best orientation for the evaluated
+                # sub_path
+                path_to_test = best_path[:idx] + [sub_path_oriented] + best_path[idx+1:]
                 path_indices = sum(path_to_test, [])
+                if tuple(path_indices) in seen:
+                    continue
+                seen.add(tuple(path_indices))
                 mapped_perm = [mapping[x] for x in path_indices]
                 bw_value = Scaffolds.bw(ma[mapped_perm, :][:, mapped_perm])
                 if bw_value < min_value:
@@ -1617,6 +1636,7 @@ class Scaffolds(object):
         >>> cut_intervals = [('a', 0, 1, 1), ('b', 1, 2, 1), ('c', 2, 3, 1),
         ... ('d', 0, 1, 1), ('e', 1, 2, 1), ('f', 0, 1, 1)]
 
+                                0  1  2  3  4  5
                                 a  b  c  d  e  f
         >>> matrix = np.array([[0, 3, 0, 0, 0, 0], # a
         ...                    [0, 0, 3, 2, 2.5, 0], # b
@@ -1631,11 +1651,25 @@ class Scaffolds(object):
         >>> list(S.get_all_paths())
         [[0], [1], [2], [3], [4], [5]]
 
-        The weakest link for the hub 'b' (b-e) is removed
+        by default the hub resolving algorithm prunes branches
+        of length one that are connected to a hub.
+        This only happens on the first iteration to remove
+        single scaffolds that can be problematic.
+        in the example, the node 'a' is a branch of length = 1
+        and is removed from the graph
+        >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=5)
+        >>> list(S.get_all_paths())
+        [[5, 4, 1, 2, 3]]
+
+        By changing the iteration to other value than 0,
+        now the the weakest link for the hub 'b' (b-e) is removed
+        >>> S = Scaffolds(hic)
+        >>> S.split_and_merge_contigs(normalize_method=None)
+        >>> S.iteration = 1
         >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=5)
         >>> list(S.get_all_paths())
         [[3, 2, 1, 0], [5, 4]]
-
+        
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(normalize_method=None)
@@ -1931,8 +1965,9 @@ class Scaffolds(object):
                 #  o---o---o----o---o
                 # a single node, is a node adj to a hub, whose other adj nodes have all degree 2
                 # adj_degree looks like: [(90, 2), (57, 2), (59, 1)], where is tuple is (node_id, degree)
-                adj_degree = sorted([(x, node_degree_mst[x]) for x in G.adj[node].keys()], key=lambda(k,v): v)[::-1]
-                if self.iteration == 0 and len(adj_degree) == 3 and adj_degree[0][1] == 2 and adj_degree[1][1] and adj_degree[2][1] == 1:
+                adj_degree = sorted([(x, node_degree_mst[x]) for x in G.adj[node].keys()], key=lambda(k, v): v)[::-1]
+                if self.iteration == 0 and len(adj_degree) == 3 and \
+                   adj_degree[0][1] == 2 and adj_degree[1][1] == 2 and adj_degree[2][1] == 1:
                     node_to_prune = adj_degree[2][0]
                     # check that the node is not part of an split scaffold. If that
                     # is the case, do not remove it. To check if a node is part of an split scaffold

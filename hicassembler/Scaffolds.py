@@ -12,6 +12,7 @@ from hicexplorer.iterativeCorrection import iterativeCorrection
 from functools import wraps
 import itertools
 import networkx as nx
+import matplotlib.pyplot as plt
 
 
 logging.basicConfig()
@@ -98,6 +99,13 @@ class Scaffolds(object):
 
         nxG = self.make_nx_of_path_graph()
         nx.write_graphml(nxG, "{}/matrix_bins_{}.graphml".format(self.out_folder, self.iteration))
+
+        # temp
+
+        my_path2 = [range(279,295)] + [range(295,315)[::-1]] + [range(315, 329)]
+        Scaffolds.find_best_direction(self.hic.matrix, my_path2)
+        self.hic.matrix.setdiag(max(self.hic.matrix.data))
+        exit("Exit after saving some demo bandwith images. Use other branch to run the assembly")
 
     def _init_path_graph(self):
         """Uses the hic information for each row (cut_intervals)
@@ -1499,26 +1507,44 @@ class Scaffolds(object):
         """
         indices = sum(paths, [])
         ma = ma[indices, :][:, indices]
-        ma.setdiag(0)
+        #ma.setdiag(0)
         # mapping from 'indices' to new matrix id
         mapping = dict([(val, idx) for idx, val in enumerate(indices)])
         min_value = np.Inf
         best_path = paths[:]
-        prev_path = None
+        seen = set()
+        # the algorithm takes each part of the path (sub_path),
+        # and computes the bw without flipping and with flipping.
+        # Then takes the direction that produces the smallest bw and
+        # continues with the next part of the path.
+        # This is faster than testing all possible combinations or orientations
+        # For a path with three sub_paths, the number of possible combinations is
+        # 8 (+++, ++-, +-+, +--, -++, -+-, --+, ---) while for this
+        # algorithm then number of combinations is at most 6. In general, for the
+        # exhaustive search the combinations are 2 ** len(path), while for this
+        # algorithm the number of combinations are <= 2 * len(path)
         for idx, sub_path in enumerate(paths):
             if len(sub_path) == 1:
                 continue
-            for sub_path_flipped in [sub_path, sub_path[::-1]]:
-                path_to_test = best_path[:idx] + [sub_path_flipped] + best_path[idx+1:]
-                if prev_path is not None and prev_path == path_to_test:
-                    continue
+            for orientation in ['+', '-']:
+                sub_path_oriented = sub_path[:] if orientation == '+' else sub_path[::-1]
+                # best_path stores in each iteration the best orientation for the evaluated
+                # sub_path
+                path_to_test = best_path[:idx] + [sub_path_oriented] + best_path[idx+1:]
                 path_indices = sum(path_to_test, [])
+                if tuple(path_indices) in seen:
+                    continue
+                seen.add(tuple(path_indices))
                 mapped_perm = [mapping[x] for x in path_indices]
                 bw_value = Scaffolds.bw(ma[mapped_perm, :][:, mapped_perm])
                 if bw_value < min_value:
                     best_path = path_to_test
                     min_value = bw_value
-                prev_path = path_to_test
+                if len(paths) == 3:
+                    fig = plt.figure(figsize=(3,3))
+                    plt.imshow(np.log1p(ma[mapped_perm, :][:, mapped_perm].todense()), interpolation='nearest', cmap='Reds')
+                    plt.savefig("/tmp/flip_matrix_{}_{:.1f}_{}.pdf".format(idx, bw_value, "-".join([str(x[:3]) for x in path_to_test])))
+
         return best_path
 
     @staticmethod
@@ -1689,6 +1715,10 @@ class Scaffolds(object):
 
         """
         matrix = self.matrix.copy()
+        matrix.data[matrix.data <= (confidence_score * 0.8) ] = 0
+        nxG = self.make_nx_graph()
+        nx.write_graphml(nxG, "{}/pre_conf_score_iter_{}.graphml".format(self.out_folder, self.iteration))
+ 
 
         if confidence_score is not None:
             matrix.data[matrix.data <= confidence_score] = 0
@@ -2023,7 +2053,7 @@ class Scaffolds(object):
             best_path = Scaffolds.find_best_direction(self.hic.matrix, bins_path)
 
         for path_u, path_v in zip(best_path[:-1], best_path[1:]):
-            if np.random.rand() < 0.65 or self.iteration >= 2:
+            if np.random.rand() < 0.5 or self.iteration >= 2:
                 self.add_edge_matrix_bins(path_u[-1], path_v[0])
 
     def make_nx_of_path_graph(self):

@@ -194,7 +194,7 @@ class HiCAssembler:
                     # stats[2] contains the mean, median, max, min and len(number of samples)
                     # for bins whose start position is about the distance of two
                     # bins or in other words that are separated by one bin
-                    conf_score = stats[1]['median'] * 1.5
+                    conf_score = stats[2]['median'] * 0.5
                 # if the scaffolds are all very small, the get_stats_per_split
                 # many not have enough information to compute, thus a second
                 # method to identify confidence score is used
@@ -916,9 +916,12 @@ class HiCAssembler:
                 if len(to_split_intervals) == 0:
                     # it could be that there is not bin nearby so the nearest bin is taken
                     log.info('split position from split list {} does not match any bin. Using nearest bin'.format(bed))
-                    to_split_intervals = [sorted(self.hic.interval_trees[bed.chromosome][0:bed.end])[-1]]
-                    log.info('split position used is {}.'.format(to_split_intervals[0]))
-
+                    try:
+                        to_split_intervals = [sorted(self.hic.interval_trees[bed.chromosome][0:bed.end])[-1]]
+                        log.info('split position used is {}.'.format(to_split_intervals[0]))
+                    except:
+                        pass
+ 
                 to_split_intervals = sorted([interval_bin.data for interval_bin in to_split_intervals])
                 if len(to_split_intervals) > 1:
                     # if the split contains several bins, the region should be removed from the matrix.
@@ -981,7 +984,7 @@ class HiCAssembler:
         import matplotlib.pyplot as plt
         from matplotlib.colors import LogNorm
 
-        fig = plt.figure(figsize=(10, 10))
+        fig = plt.figure(figsize=(4, 4))
         hic = self.reorder_matrix()
 
         axHeat2 = fig.add_subplot(111)
@@ -1235,7 +1238,9 @@ class HiCAssembler:
             hic.chromosomeBinBoundaries = hic.chrBinBoundaries
         else:
             path_list_test = {}
-            for idx, scaff_path in enumerate(self.scaffolds_graph.scaffold.get_all_paths()):
+            path_list_shuf = list(self.scaffolds_graph.scaffold.get_all_paths())
+            np.random.shuffle(path_list_shuf)
+            for idx, scaff_path in enumerate(path_list_shuf):
                 # scaff_path looks like:
                 # ['scaffold_12970/3', 'scaffold_12472/3', 'scaffold_12932/3', 'scaffold_12726/3', 'scaffold_12726/1']
                 path_list_test[idx] = []

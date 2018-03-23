@@ -1236,10 +1236,12 @@ class HiCAssembler:
             scaffold_order = [x for x in scaffold_order if x in hic.chrBinBoundaries.keys()]
             hic.reorderChromosomes(scaffold_order)
             hic.chromosomeBinBoundaries = hic.chrBinBoundaries
+            self.scaffolds_graph.before_merge_scaffold_order = scaffold_order[:]
         else:
             path_list_test = {}
             path_list_shuf = list(self.scaffolds_graph.scaffold.get_all_paths())
             np.random.shuffle(path_list_shuf)
+            self.scaffolds_graph.after_merge_scaffold_order = path_list_shuf[:]
             for idx, scaff_path in enumerate(path_list_shuf):
                 # scaff_path looks like:
                 # ['scaffold_12970/3', 'scaffold_12472/3', 'scaffold_12932/3', 'scaffold_12726/3', 'scaffold_12726/1']

@@ -102,10 +102,10 @@ class Scaffolds(object):
 
         # temp
 
-        my_path2 = [range(279,295)] + [range(295,315)[::-1]] + [range(315, 329)]
-        Scaffolds.find_best_direction(self.hic.matrix, my_path2)
-        self.hic.matrix.setdiag(max(self.hic.matrix.data))
-        exit("Exit after saving some demo bandwith images. Use other branch to run the assembly")
+        # my_path2 = [range(279,295)] + [range(295,315)[::-1]] + [range(315, 329)]
+        # Scaffolds.find_best_direction(self.hic.matrix, my_path2)
+        # self.hic.matrix.setdiag(max(self.hic.matrix.data))
+        # exit("Exit after saving some demo bandwith images. Use other branch to run the assembly")
 
     def _init_path_graph(self):
         """Uses the hic information for each row (cut_intervals)
@@ -820,7 +820,6 @@ class Scaffolds(object):
         reduce_paths = paths_flatten[:]
 
         reduced_matrix = reduce_matrix(self.hic.matrix, reduce_paths, diagonal=True)
-
         if normalize_method == 'mean':
             self.matrix = Scaffolds.normalize_by_mean(reduced_matrix, reduce_paths)
         elif normalize_method == 'ice':
@@ -828,6 +827,18 @@ class Scaffolds(object):
         else:
             self.matrix = reduced_matrix
 
+        bin_order_matrix = [self.scaffold.node[x]['path'] for x in self.before_merge_scaffold_order if x in self.scaffold.node]
+        bin_order_matrix =  sum(bin_order_matrix, [])
+        bin_order = [self.scaffold.node[x]['merged_path_id'] for x in self.before_merge_scaffold_order if x in self.scaffold.node]
+        mm = reduced_matrix[bin_order, :][:,bin_order]
+        fig = plt.figure(figsize=(4,4))
+        plt.imshow(np.log1p(mm.todense()), interpolation='nearest', cmap='RdYlBu_r')
+        plt.savefig("/tmp/reduced_{}.pdf".format(len(bin_order)))
+        fig = plt.figure(figsize=(4,4))
+        plt.imshow(np.log1p(self.hic.matrix[bin_order_matrix,:][:,bin_order_matrix].todense()), interpolation='nearest', cmap='RdYlBu_r')
+        plt.savefig("/tmp/unreduced_{}.pdf".format(len(bin_order_matrix)))
+
+        exit()
         assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
 
     @staticmethod

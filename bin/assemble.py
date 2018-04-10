@@ -56,7 +56,7 @@ def parse_arguments(args=None):
                         default=25000)
 
     parser.add_argument('--num_processors',
-                        help='Number of processors to use.',
+                        help='Number of processors to use. Multithreading is only used to identify mis-assemblies.',
                         required=False,
                         type=int,
                         default=1)

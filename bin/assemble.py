@@ -105,7 +105,7 @@ def parse_arguments(args=None):
     return parser.parse_args(args)
 
 
-def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, contig_separator='N'*5000,
+def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, contig_separator='N'*2000,
                chain_file = None):
     r"""
     Takes the hic scaffolds information and the original fasta file
@@ -147,8 +147,26 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, con
     >>> open('/tmp/chain.txt', 'r').readlines()[0]
     'chain\t100\tone\t6\t+\t0\t6\thic_scaffold_1\t10\t-\t4\t10\t1\n'
 
-    >>> super_scaffolds = [[('scaffold_12472', 170267, 763072, '-'), ('scaffold_12932', 1529201, 1711857, '-'),
-    ... ('scaffold_12932', 1711857, 2102469, '-'), ('scaffold_12726', 1501564, 2840439, '-')],
+    Test the separator that is added.
+    >>> test_fasta = ">one\nAAAGGGTTTAAA\n"
+    >>> fh = open("/tmp/test.fasta",'w')
+    >>> fh.write(test_fasta)
+    >>> fh.close()
+
+    Test for separator on + strand (3 NNNs should be added)
+    >>> scaff = [[('one', 0, 3, '+'), ('one', 6, 9, '+')]]
+    >>> save_fasta('/tmp/test.fasta', '/tmp/out.fasta', scaff, print_stats=False, contig_separator='-')
+    >>> open('/tmp/out.fasta', 'r').readlines()
+    ['>hic_scaffold_1 one:0-3:+,one:6-9:+\n', 'AAANNNTTT\n']
+
+    Test for separator on - strand (3 NNNs should be added)
+    >>> scaff = [[('one', 9, 12, '-'), ('one', 3, 6, '-')]]
+    >>> save_fasta('/tmp/test.fasta', '/tmp/out.fasta', scaff, print_stats=False, contig_separator='-')
+    >>> open('/tmp/out.fasta', 'r').readlines()
+    ['>hic_scaffold_1 one:9-12:-,one:3-6:-\n', 'TTTNNNCCC\n']
+
+    >>> super_scaffolds = [[('scaffold_12472', 170267, 763072, '-'), ('scaffold_12932', 1529201, 1711857, '+'),
+    ... ('scaffold_12932', 1711857, 2102469, '+'), ('scaffold_12726', 1501564, 2840439, '-')],
     ... [('scaffold_13042', 0, 239762, '-'), ('scaffold_12928', 0, 1142515, '-')]]
     >>> save_fasta("../hicassembler/test/scaffolds_test.fa", "/tmp/test.fa", super_scaffolds,
     ... chain_file="/tmp/chain.txt")
@@ -182,9 +200,29 @@ def save_fasta(input_fasta, output_fasta, super_scaffolds, print_stats=True, con
                 sequence += record_dict[contig_id][start:end]
 
             hic_scaffold_end = len(sequence)
-            if contig_idx < len(super_c) - 1:
+            if contig_idx == len(super_c) - 1:
                 # only add the separator sequence if the sequence is not the last
-                sequence += nnn_seq
+                pass
+
+            else:
+                (n_contig_id, n_start, n_end, n_strand) = super_c[contig_idx + 1]
+                next_contig = {'contig_id': n_contig_id, 'start': n_start, 'end': n_end, 'strand': n_strand}
+
+                if next_contig['contig_id'] == contig_id and next_contig['strand'] == strand:
+                    # this means that a contig was split by the misassembly correction but was later joined together.
+                    # the next cases test if the contigs are contiguous (separated by less than 500 bp)
+                    # A number of NNs is added between the two contigs equal to their distance.
+                    # For example, for ('A', 0, 100, '+') and ('A', 110, 200, '+'), 10 'N's are added in the fasta
+                    # file.
+                    if strand == '+' and next_contig['start'] - end < 500:
+                        assert(next_contig['start'] - end >= 0)
+                        sequence += Seq('N' * (next_contig['start'] - end))
+                    elif strand == '-' and start - next_contig['end'] < 500:
+                        assert(start - next_contig['end'] >= 0)
+                        sequence += Seq('N' * (start - next_contig['end']))
+                else:
+                    sequence += nnn_seq
+
             info.append("{contig}:{start}-{end}:{strand}".
                         format(contig=contig_id, start=start, end=end, strand=strand))
             chain_data.append((hic_scaffold_start, hic_scaffold_end, contig_id, start, end,

@@ -960,7 +960,7 @@ class HiCAssembler:
             self.hic.removeBins(bins_to_remove)
 
     def plot_matrix(self, filename, title='Assembly results',
-                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=None,
+                    cmap='RdYlBu_r', log1p=True, add_vlines=False, vmax=None, vmin=4,
                     shuffle=False):
         """
         Plots the resolved paths on a matrix

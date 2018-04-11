@@ -785,7 +785,6 @@ class Scaffolds(object):
             path_name = self.matrix_bins.get_path_name_of_node(path[0])
             for index, sub_path in enumerate(split_path):
                 length = sum([self.matrix_bins.node[x]['length'] for x in sub_path])
-
                 # prepare new PathGraph nodes
                 if num_splits == 1:
                     # by default the type of path_name is numpy.string which is not compatible with networkx when
@@ -803,7 +802,10 @@ class Scaffolds(object):
                     scaffold_name_set.add(self.matrix_bins.node[bin_id]['name'])
                 # update self.scaffold nodes to refer to the new merged path id
                 for scaff_name in scaffold_name_set:
-                    self.scaffold.node[scaff_name]['merged_path_id'] = i
+                    if index == 0:
+                        self.scaffold.node[scaff_name]['merged_path_id'] = [i]
+                    else:
+                        self.scaffold.node[scaff_name]['merged_path_id'] += [i]
 
                 self.pg_base.add_node(i, attr_dict=attr)
 
@@ -827,18 +829,32 @@ class Scaffolds(object):
         else:
             self.matrix = reduced_matrix
 
-        bin_order_matrix = [self.scaffold.node[x]['path'] for x in self.before_merge_scaffold_order if x in self.scaffold.node]
-        bin_order_matrix =  sum(bin_order_matrix, [])
-        bin_order = [self.scaffold.node[x]['merged_path_id'] for x in self.before_merge_scaffold_order if x in self.scaffold.node]
-        mm = reduced_matrix[bin_order, :][:,bin_order]
-        fig = plt.figure(figsize=(4,4))
-        plt.imshow(np.log1p(mm.todense()), interpolation='nearest', cmap='RdYlBu_r')
-        plt.savefig("/tmp/reduced_{}.pdf".format(len(bin_order)))
-        fig = plt.figure(figsize=(4,4))
-        plt.imshow(np.log1p(self.hic.matrix[bin_order_matrix,:][:,bin_order_matrix].todense()), interpolation='nearest', cmap='RdYlBu_r')
-        plt.savefig("/tmp/unreduced_{}.pdf".format(len(bin_order_matrix)))
+        # get a name, bin_id dict of pg_base:
+        try:
+            bin_order_matrix = [self.scaffold.node[x]['path'] for x in self.before_merge_scaffold_order if x in self.scaffold.node]
+            bin_order_matrix =  sum(bin_order_matrix, [])
+            name_2_id = dict([(v['name'], k) for k,v in self.pg_base.node.iteritems()])
+            bin_order_p = [self.scaffold.node[x]['merged_path_id'] for x in self.before_merge_scaffold_order if x in self.scaffold.node]
+            bin_order = sum(bin_order_p, [])
+            scaff_order_names = [self.scaffold.node[x]['name'] for x in self.before_merge_scaffold_order if x in self.scaffold.node]
+            mm = reduced_matrix[bin_order, :][:,bin_order]
+            fig = plt.figure(figsize=(3, 4.5))
+            ax = fig.add_subplot(111)
+            ax.imshow(np.log1p(mm.todense()), aspect='equal', interpolation='nearest', cmap='RdYlBu_r')
+            bno = []
+            count = 0
+            for x in bin_order_p:
+                bno += [range(count, count+len(x))]
+                count += len(x)
+            ax.set_xticks([x[0] for x in bno])
+            ax.set_xticklabels(scaff_order_names, rotation=90)
 
-        exit()
+            plt.savefig("{}/reduced_iter_{}_{}.pdf".format(self.out_folder, self.iteration, len(bin_order)))
+            fig = plt.figure(figsize=(3, 3))
+            plt.imshow(np.log1p(self.hic.matrix[bin_order_matrix,:][:,bin_order_matrix].todense()), interpolation='nearest', cmap='RdYlBu_r')
+            plt.savefig("{}/unreduced_iter_{}_{}.pdf".format(self.out_folder, self.iteration, len(bin_order_matrix)))
+        except:
+            pass
         assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
 
     @staticmethod

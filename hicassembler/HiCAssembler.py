@@ -437,6 +437,11 @@ class HiCAssembler:
         [['backbone', 1, 2, 3], ['backbone', 4, 5]]
         """
 
+        for k, v in dict(nx.degree(graph)).iteritems():
+            if v > 2 and k != backbone_node:
+                log.warn("graph contains non backbone nodes with degree > 2 (only backbone nodes should have a "
+                         "degree > 2 to insert scaffolds into hic-scaffolds")
+                return []
         # get backbone_id neighbors
         path_list = []
         seen = set([backbone_node])
@@ -684,7 +689,7 @@ class HiCAssembler:
             # hic-scaffolds. The solution is to break the path by the
             # weakest link instead of letting the path to join the
             # two different hic-scaffolds
-            elif len(backbone_list) == 2:
+            elif len(backbone_list) == 2 and max(dict(nx.degree(branch)).values()) <=2:
                 # check if the branch forms a path with the backbones at the two ends
                 path = HiCAssembler._get_paths_from_backbone(branch, list(backbone_list)[0])
                 if len(path) > 1:
@@ -733,7 +738,7 @@ class HiCAssembler:
                         self.insert_path(path_b[::-1], orig_scaff)
 
                     continue
-            else:
+            elif len(backbone_list) == 1:
                 backbone_node = list(backbone_list)[0]
 
                 # A this point a branch may look like this

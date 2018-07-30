@@ -1,5 +1,3 @@
-# HiCAssembler
-
 HiCAssembler
 ============
 
@@ -19,7 +17,7 @@ complete chromosomes. The assembly process consists of the following steps:
 HiCAssembler automatically visualizes the assembly process. The following is
 an example output of HiCAssembler from #[Renschler et al. 2018] (https://www...)
 
-![HiCAssembler assembly]#(./docs/content/images/HiCAssembler_assembly.png)
+![HiCAssembler assembly] (./docs/content/images/HiCAssembler_assembly.png)
 
 
 Installation
@@ -64,10 +62,13 @@ $ python assemble.py -m Hi_C_matrix_corrected.h5 -o ./assembly_output \
 
 `--min_scaffold_length 100000` sets the minimal length of pre-assembled scaffolds
 to 100 kb. Scaffolds smaller than 100 kb are added after the iterative correction.
+
 `--bin_size 5000` sets the Hi-C bin size to 5 kb. This would be the size of
 high-resolution bins referred to in the algorithm description.
+
 `--misassembly_zscore_threshold -1.0` sets the threshold deciding if a
 TAD-separation score is strong enough to be considered a mis-assembly.
+
 `--num_iterations 3` sets the number of assembly iterations to 3.
 
 
@@ -107,7 +108,7 @@ $ python assemble.py -m /data/hic_small.h5 -o ./assembly_output \
 Each step of the assembly is automatically visualized. The following is
 an example output of HiCAssembler from #[Renschler et al. 2018] (https://www...)
 
-![HiCAssembler visualization]#(./docs/content/images/HiCAssembler_visualization.png)
+![HiCAssembler visualization] (./docs/content/images/HiCAssembler_visualization.png)
 
 
 Now, let's see how scaffolds with and without mis-assemblies look like:
@@ -118,7 +119,7 @@ Assembly errors can easily be detected as an abrupt change in the Hi-C signal.
 HiCAssembler automatically splits scaffolds at minima of the Hi-C score as shown
 here:
 
-![HiCAssembler score]#(./docs/content/images/Assembly_errors_score.png)
+![HiCAssembler score] (./docs/content/images/Assembly_errors_score.png)
 
 Strong TAD boundaries with a low TAD-separation score can wrongly be considered as
 mis-assemblies. The threshold of the score where scaffolds get split needs to

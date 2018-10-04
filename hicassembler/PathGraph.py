@@ -85,8 +85,8 @@ class PathGraph(object):
 
         Returns
         -------
-        adj_dict : dictionary
-           The adjacency dictionary for nodes connected to n.
+        adj_list : list
+           The adjacency list for nodes connected to n.
 
         Notes
         -----
@@ -337,10 +337,10 @@ class PathGraph(object):
         if node in self.path_id:
             name = self.path_id[node]
         else:
-            name = node
+            name = self.node[node]['name']
         return name
 
-    def add_edge(self, u, v, name=None, attr_dict=None, **attr):
+    def add_edge(self, u, v, name=None, return_direction=False, attr_dict=None, **attr):
         """
         Given a node u and a node v, this function appends and edge between u and v.
         Importantly, the function checks that this operation is possible. If u is
@@ -397,6 +397,21 @@ class PathGraph(object):
         Traceback (most recent call last):
         ...
         PathGraphEdgeNotPossible: Joining nodes 0, 5 forms a circle
+
+        Test return direction
+        >>> S = PathGraph()
+        >>> S.add_path([0, 1, 2, 3])
+        >>> S.add_path([6, 5, 4])
+        >>> S.add_edge(3,4, return_direction=True)
+        ('+', '-')
+
+        >>> S.add_path([7, 8])
+        >>> S.add_edge(7, 6, return_direction=True)
+        ('-', '-')
+
+        >>> S[7]
+        [8, 7, 6, 5, 4, 3, 2, 1, 0]
+
         """
         if attr_dict is None:
             attr_dict = attr
@@ -463,7 +478,9 @@ class PathGraph(object):
         datadict.update(attr_dict)
         self.adj[u][v] = datadict
         self.adj[v][u] = datadict
-        return direction_u, direction_v
+
+        if return_direction:
+            return direction_u, direction_v
 
     def delete_node_from_path(self, n):
         """
@@ -596,10 +613,9 @@ class PathGraph(object):
         new_path_u = self.path[path_id][:idx_v]
         new_path_v = self.path[path_id][idx_v:]
 
-
-        # this conditions happens when the nodes belong to two different paths
+        # this conditions happen when the nodes belong to two different paths
         # and the new path names is the split of the two paths
-        if self.node[u]['name'] != self.node[v]['name']:
+        if 'name' in self.node[u] and 'name' in self.node[v] and self.node[u]['name'] != self.node[v]['name']:
             new_name_u = get_name_from_paths(new_path_u)
             new_name_v = get_name_from_paths(new_path_v)
         else:

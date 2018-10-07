@@ -14,23 +14,15 @@ complete chromosomes. The assembly process consists of the following steps:
  * addition of scaffolds that were not used yet
  * saving of scaffolds fasta file and liftover chain file
 
-HiCAssembler automatically visualizes the assembly process. The following is
-an example output of HiCAssembler from #[Renschler et al. 2018] (https://www...)
+HiCAssembler automatically visualizes the assembly process to inform
+the user on the assembly status
 
 ![HiCAssembler assembly](./docs/content/images/HiCAssembler_assembly.png)
 
 
 Installation
 ------------
-HiCAssembler works with#python 2.7 and python 3.6??
-
-Currently, the best way to install HiCAssembler is with#add
-
-```bash
-$ conda install HiCAssembler
-```
-
-Also, HiCAssembler can be installed using#pip
+HiCAssembler works with python 2.7 and can be installed with pip:
 
 ```bash
 $ pip install HiCAssembler
@@ -55,7 +47,7 @@ Afterwards, you can start to assemble your pre-assembled contigs/scaffolds
 into chromosomes using HiCAssembler.
 
 ```bash
-$ python assemble.py -m Hi_C_matrix_corrected.h5 -o ./assembly_output \
+$ assemble -m Hi_C_matrix_corrected.h5 -o ./assembly_output \
 --min_scaffold_length 100000 --bin_size 5000 --misassembly_zscore_threshold -1.0 \
 --num_iterations 3 --num_processors 16
 ```
@@ -100,13 +92,12 @@ A minimal example of the assembly of several scaffolds:
 
 
 ```bash
-$ python assemble.py -m /data/hic_small.h5 -o ./assembly_output \
+$ assemble -m /data/hic_small.h5 -o ./assembly_output \
 --min_scaffold_length 100000 --bin_size 5000 --misassembly_zscore_threshold -1.0 \
 --num_iterations 3 --num_processors 16
 ```
 
-Each step of the assembly is automatically visualized. The following is
-an example output of HiCAssembler from #[Renschler et al. 2018] (https://www...)
+Each step of the assembly is automatically visualized. 
 
 ![HiCAssembler visualization](./docs/content/images/HiCAssembler_visualization.png)
 

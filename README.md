@@ -14,23 +14,16 @@ complete chromosomes. The assembly process consists of the following steps:
  * addition of scaffolds that were not used yet
  * saving of scaffolds fasta file and liftover chain file
 
-HiCAssembler automatically visualizes the assembly process. The following is
-an example output of HiCAssembler from #[Renschler et al. 2018] (https://www...)
+HiCAssembler automatically visualizes the assembly process. 
 
 ![HiCAssembler assembly](./docs/content/images/HiCAssembler_assembly.png)
 
 
 Installation
 ------------
-HiCAssembler works with#python 2.7 and python 3.6??
+HiCAssembler works with python 2.7 and requires that [HiCExplorer](https://hicexplorer.readthedocs.io/) is installed
 
-Currently, the best way to install HiCAssembler is with#add
-
-```bash
-$ conda install HiCAssembler
-```
-
-Also, HiCAssembler can be installed using#pip
+To install HiCAssembler use pip.
 
 ```bash
 $ pip install HiCAssembler
@@ -46,7 +39,7 @@ $ pip install git+https://github.com/maxplanck-ie/HiCAssembler.git
 Usage
 -----
 Before running HiCAssembler, creation of a corrected Hi-C matrix in h5 format
-is required. This file format is the output created by HiCExporer (http://hicexplorer.readthedocs.io/en/latest/).
+is required. This file format is the output created by HiCExporer (http://hicexplorer.readthedocs.io/).
 Hi-C reads need to be mapped to your pre-assembled contigs/scaffolds and then the
 Hi-C matrix needs to be created and corrected. An example usage of HiCExporer for
 these steps can be found at http://hicexplorer.readthedocs.io/en/latest/content/example_usage.html.
@@ -87,9 +80,7 @@ The position of the assembly error is displayed by moving your cursor over it.
 
 Citation
 ---------
-If you use HiCAssembler in your analysis, you can cite the following paper :
-
-#add paper #add doi and link [doi:](https://www...)
+Prepring in preparation
 
 Examples
 --------
@@ -105,8 +96,7 @@ $ python assemble.py -m /data/hic_small.h5 -o ./assembly_output \
 --num_iterations 3 --num_processors 16
 ```
 
-Each step of the assembly is automatically visualized. The following is
-an example output of HiCAssembler from #[Renschler et al. 2018] (https://www...)
+Each step of the assembly is automatically visualized. 
 
 ![HiCAssembler visualization](./docs/content/images/HiCAssembler_visualization.png)
 

@@ -10,7 +10,7 @@ with open('requirements.txt', encoding='utf-8') as requirements:
 with open('README.md', encoding='utf-8') as readme_f:
     readme = readme_f.read()
 
-author = 'Fidel Ramírez'
+author = 'Fidel Ramírez, Gina Renschler, Gautier Richard'
 
 setup(
     name='HiCAssembler',

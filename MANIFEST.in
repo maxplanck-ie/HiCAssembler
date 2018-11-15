@@ -1,2 +1,3 @@
 include versioneer.py
 include hicassembler/_version.py
+include requirements.txt

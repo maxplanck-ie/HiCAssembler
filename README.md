@@ -22,7 +22,9 @@ the user on the assembly status
 
 Installation
 ------------
-HiCAssembler works with python 2.7 and can be installed with pip:
+HiCAssembler works with python 2.7 and requires that [HiCExplorer](https://hicexplorer.readthedocs.io/) is installed
+
+To install HiCAssembler use pip.
 
 ```bash
 $ pip install HiCAssembler
@@ -38,7 +40,7 @@ $ pip install git+https://github.com/maxplanck-ie/HiCAssembler.git
 Usage
 -----
 Before running HiCAssembler, creation of a corrected Hi-C matrix in h5 format
-is required. This file format is the output created by HiCExporer (http://hicexplorer.readthedocs.io/en/latest/).
+is required. This file format is the output created by HiCExporer (http://hicexplorer.readthedocs.io/).
 Hi-C reads need to be mapped to your pre-assembled contigs/scaffolds and then the
 Hi-C matrix needs to be created and corrected. An example usage of HiCExporer for
 these steps can be found at http://hicexplorer.readthedocs.io/en/latest/content/example_usage.html.
@@ -79,9 +81,7 @@ The position of the assembly error is displayed by moving your cursor over it.
 
 Citation
 ---------
-If you use HiCAssembler in your analysis, you can cite the following paper :
-
-#add paper #add doi and link [doi:](https://www...)
+Prepring in preparation
 
 Examples
 --------

@@ -5,7 +5,7 @@ import os.path
 import copy
 import sys
 
-import hicexplorer.HiCMatrix as HiCMatrix
+import hicmatrix.HiCMatrix as HiCMatrix
 import hicexplorer.hicMergeMatrixBins
 import hicexplorer.hicFindTADs as hicFindTADs
 from functools import wraps

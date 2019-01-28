@@ -4,7 +4,7 @@ import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix, triu
 import logging
 import time
-import hicexplorer.HiCMatrix as HiCMatrix
+import hicmatrix.HiCMatrix as HiCMatrix
 from hicassembler.PathGraph import PathGraph, PathGraphEdgeNotPossible, PathGraphException
 
 from hicexplorer.reduceMatrix import reduce_matrix
@@ -1669,7 +1669,7 @@ class Scaffolds(object):
         >>> S.join_paths_max_span_tree(0, hub_solving_method='remove weakest', node_degree_threshold=5)
         >>> list(S.get_all_paths())
         [[3, 2, 1, 0], [5, 4]]
-        
+
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=matrix)
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(normalize_method=None)

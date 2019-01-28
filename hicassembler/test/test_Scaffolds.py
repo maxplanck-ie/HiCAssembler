@@ -1,6 +1,6 @@
 from scipy.sparse import csr_matrix
 import numpy as np
-import hicexplorer.HiCMatrix as HiCMatrix
+import hicmarix.HiCMatrix as HiCMatrix
 from hicassembler.Scaffolds import Scaffolds
 
 

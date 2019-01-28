@@ -7,7 +7,7 @@ from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 
 import sys
-import hicexplorer.HiCMatrix as HiCMatrix
+import hicmatrix.HiCMatrix as HiCMatrix
 from hicexplorer.utilities import writableFile
 from hicexplorer.utilities import toString, toBytes
 
@@ -519,4 +519,3 @@ def main(args=None):
 
     plt.savefig(args.outFileName, dpi=args.dpi)
     plt.close(fig)
-

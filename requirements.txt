@@ -3,7 +3,6 @@ matplotlib >= 2.0.0
 pyBigWig >=0.3.10
 future >= 0.16.0
 hicmatrix
-hicexplorer >= 2.2
 cooler >= 0.7.6
 networkx >= 2.1
 versioneer >= 0.18

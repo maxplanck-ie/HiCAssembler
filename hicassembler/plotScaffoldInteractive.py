@@ -1,4 +1,4 @@
-from __future__ import division
+
 
 import matplotlib
 matplotlib.use("TkAgg")
@@ -130,8 +130,8 @@ def getRegion(args, ma):
 
     args.region = [chrom, region_start, region_end]
 
-    idx1, start_pos1 = zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom and
-                             x[1] >= region_start and x[2] < region_end])
+    idx1, start_pos1 = list(zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom and
+                             x[1] >= region_start and x[2] < region_end]))
     idx2 = idx1
     chrom2 = chrom
     start_pos2 = start_pos1
@@ -186,7 +186,7 @@ def main(args=None):
     log.debug("plotting heatmap")
 
     if matrix.shape[0] < 5:
-        log.info("Matrix for {} too small to plot. Matrix size: {}".format(ma.chrBinBoundaries.keys()[0], matrix.shape))
+        log.info("Matrix for {} too small to plot. Matrix size: {}".format(list(ma.chrBinBoundaries.keys())[0], matrix.shape))
         return
 
     ax = fig.add_axes(position)

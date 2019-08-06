@@ -95,11 +95,11 @@ def profile(fn):
 
 
 def print_prof_data():
-    for fname, data in PROF_DATA.items():
+    for fname, data in list(PROF_DATA.items()):
         max_time = max(data[1])
         avg_time = sum(data[1]) / len(data[1])
-        print "Function {} called {} ({}) times. ".format(fname, data[0], data[1])
-        print 'Execution time max: %.3f, average: %.3f' % (max_time, avg_time)
+        print("Function {} called {} ({}) times. ".format(fname, data[0], data[1]))
+        print('Execution time max: %.3f, average: %.3f' % (max_time, avg_time))
 
 
 def clear_prof_data():
@@ -182,7 +182,7 @@ class HiCAssembler:
 
         merge_length = MERGE_LENGTH
         stats = self.compute_distances()
-        print ((np.arange(1,ITER)**MERGE_LENGTH_GROW)*MERGE_LENGTH).astype(int)
+        print(((np.arange(1,ITER)**MERGE_LENGTH_GROW)*MERGE_LENGTH).astype(int))
 
         for merge_length in ((np.arange(1,ITER)**MERGE_LENGTH_GROW)*MERGE_LENGTH).astype(int):
 #        for iter_num in range(1,ITER+1):
@@ -221,8 +221,8 @@ class HiCAssembler:
             
             self.compute_N50(merge_length)
             if self.prev_paths ==  self.scaffolds.get_all_paths():
-                print "paths not changing. Returning after {} iterations, "\
-                    "merge_length: {}".format(self.iteration, merge_length)
+                print("paths not changing. Returning after {} iterations, "\
+                    "merge_length: {}".format(self.iteration, merge_length))
 #                break
             # get the average length of all scaffolds that are larger
             # than the current merge_length
@@ -270,7 +270,7 @@ class HiCAssembler:
 
         """
         log.debug("filtering unreliable contigs")
-        contig_id, c_start, c_end, coverage = zip(*self.hic.cut_intervals)
+        contig_id, c_start, c_end, coverage = list(zip(*self.hic.cut_intervals))
 
         # get scaffolds length
         length = np.array(c_end) - np.array(c_start) 
@@ -303,7 +303,7 @@ class HiCAssembler:
             # it does not pass filtering
             try:
                 float(sum(length[overlap]))/(sum(length[nodes]))
-            except Exception, e:
+            except Exception as e:
                 log.error("Error message: {}".format(e))
                 exit()
             if float(sum(length[overlap]))/(sum(length[nodes])) >= 0.75:
@@ -323,14 +323,14 @@ class HiCAssembler:
                 mask_s.difference_update(nodes)
 
         mask = list(mask_s)
-        rows_to_keep = cols_to_keep = np.delete(range(self.hic.matrix.shape[1]), mask)
+        rows_to_keep = cols_to_keep = np.delete(list(range(self.hic.matrix.shape[1])), mask)
         log.info("Total: {}, small: {}, few inter: {}, low cover: {}, "
                  "repetitive: {}".format(len(contig_id), len(small_list),
                                          len(few_inter),
                                          len(low_cov_list),
                                          len(repetitive)))
         if len(mask) == len(ma_sum):
-            print "Filtering to strong. All regions would be removed."
+            print("Filtering to strong. All regions would be removed.")
             exit(0)
 
         log.info("removing {} ({}%) low quality regions from hic matrix "
@@ -343,11 +343,11 @@ class HiCAssembler:
         removed_length = sum(length[mask])
         kept_length = sum(length[rows_to_keep])
 
-        print "Total removed length:{} ({:.2f}%)\nTotal " \
+        print("Total removed length:{} ({:.2f}%)\nTotal " \
             "kept length: {}({:.2f}%)".format(removed_length, 
                                               float(removed_length)/total_length,
                                               kept_length,
-                                              float(kept_length)/total_length)
+                                              float(kept_length)/total_length))
         # remove rows and cols from matrix
         hic.matrix = self.hic.matrix[rows_to_keep, :][:, cols_to_keep]
         hic.cut_intervals = [self.hic.cut_intervals[x] for x in rows_to_keep]
@@ -355,8 +355,8 @@ class HiCAssembler:
         # some rows may have now 0 read counts, remove them as well
         to_keep = np.flatnonzero(np.asarray(hic.matrix.sum(1)).flatten() > 0)
         if len(to_keep) != hic.matrix.shape[0]:
-            print "removing {} extra rows that after filtering ended up "\
-                "with no interactions".format(hic.matrix.shape[0] - len(to_keep))
+            print("removing {} extra rows that after filtering ended up "\
+                "with no interactions".format(hic.matrix.shape[0] - len(to_keep)))
             hic.matrix = self.hic.matrix[to_keep, :][:, to_keep]
             hic.cut_intervals = [self.hic.cut_intervals[x] for x in to_keep]
 
@@ -374,13 +374,13 @@ class HiCAssembler:
         if two contigs are next to each other, they are at distance 1
 
         """
-        print "[{}] computing distances".format(inspect.stack()[0][3])
+        print("[{}] computing distances".format(inspect.stack()[0][3]))
 
         dist_list = []
         contig_length = []
         # get all paths (connected componets) longer than 1
         conn = [x for x in self.scaffolds.get_all_paths() if len(x) > 1]
-        label, start, end, coverage = zip(*self.hic.cut_intervals)
+        label, start, end, coverage = list(zip(*self.hic.cut_intervals))
         # get the length of contigs in
         # conn
         if len(conn) == 0:
@@ -431,7 +431,7 @@ class HiCAssembler:
                     
         # consolidate data:
         consolidated_dist_value =  dict()
-        for k,v in dist_dict.iteritems():
+        for k,v in dist_dict.items():
             consolidated_dist_value[k] = {'mean': np.mean(v),
                                           'median': np.median(v),
                                           'max':np.max(v),
@@ -439,7 +439,7 @@ class HiCAssembler:
                                           'len':len(v)}
 
         consolidated_distc_value =  dict()
-        for k,v in distc_dict.iteritems():
+        for k,v in distc_dict.items():
             consolidated_distc_value[k] = {'mean': np.mean(v),
                                            'median': np.median(v),
                                            'max':np.max(v),
@@ -460,7 +460,7 @@ class HiCAssembler:
 
         Also it returns tabulated values per distance.
         """
-        print "[{}] computing distances".format(inspect.stack()[0][3])
+        print("[{}] computing distances".format(inspect.stack()[0][3]))
 
         dist_list = []
         contact_list = []
@@ -471,7 +471,7 @@ class HiCAssembler:
             message = "Contigs not long enough to compute a merge " \
                 "of length {} ".format(merge_length)
             raise HiCAssemblerException(message)
-        contig_parts = self.group.values()
+        contig_parts = list(self.group.values())
         contig_parts = [x for x in contig_parts if x[1]-x[0] > merge_length]
         if len(contig_parts) > 200:
             # otherwise too many computations will be made
@@ -484,16 +484,16 @@ class HiCAssembler:
             raise HiCAssemblerException(message)
         for g_start, g_end  in contig_parts:
             contig_id, c_start, c_end, extra = \
-                zip(*self.hic.cut_intervals[g_start:g_end])
+                list(zip(*self.hic.cut_intervals[g_start:g_end]))
 
             if c_start[0] > c_start[-1]:
                 # swap
                 contig_id, c_start, c_end, extra = \
-                    zip(*self.hic.cut_intervals[g_start:g_end][::-1])
+                    list(zip(*self.hic.cut_intervals[g_start:g_end][::-1]))
                 
-                contig_range = range(g_start, g_end)[::-1]
+                contig_range = list(range(g_start, g_end))[::-1]
             else:
-                contig_range = range(g_start, g_end)
+                contig_range = list(range(g_start, g_end))
 
             sub_m = self.hic.matrix[contig_range,:][:,contig_range]
             sub_mc = self.cmatrix_orig[contig_range,:][:,contig_range]
@@ -504,9 +504,9 @@ class HiCAssembler:
             merge_list = np.split(np.arange(length), length/merge_length)
             if merge_list > 1:
                 sub_m = reduce_matrix(
-                    sub_m[range(length),:][:,range(length)], merge_list)
+                    sub_m[list(range(length)),:][:,list(range(length))], merge_list)
                 sub_mc = reduce_matrix(
-                    sub_mc[range(length),:][:,range(length)], merge_list)
+                    sub_mc[list(range(length)),:][:,list(range(length))], merge_list)
                 # merge start and end data
                 c_start = np.take(c_start, [x[0] for x in merge_list])
                 c_end = np.take(c_end, [x[-1] for x in merge_list])
@@ -539,7 +539,7 @@ class HiCAssembler:
         ## tabulate the distance information
         tab_dist = dict()
         tab_dist_norm = dict()
-        dist_range = range(0, max(dist_list), contig_length_value)
+        dist_range = list(range(0, max(dist_list), contig_length_value))
         for index in range(len(dist_range)-1) :
             contacts = contact_list[(dist_list >= dist_range[index]) & 
                                     (dist_list < dist_range[index+1])]
@@ -594,13 +594,13 @@ class HiCAssembler:
                 # skip short paths after iteration 1
                 if sum(contig_len[HiCAssembler.flatten_list(split_path)]) < flank_length*0.3:
                     continue
-            merged_paths.append(range(i, len(split_path)+i))
+            merged_paths.append(list(range(i, len(split_path)+i)))
             i += len(split_path)
             paths_flatten.extend(split_path)
 
 #            print "in {} out {} ".format(path, split_path_envenly)
         if len(paths_flatten) == 0:
-            print "[{}] Nothing to reduce.".format(inspect.stack()[0][3])
+            print("[{}] Nothing to reduce.".format(inspect.stack()[0][3]))
             return None, None
 
         reduce_paths = paths_flatten[:]
@@ -661,7 +661,7 @@ class HiCAssembler:
             import pdb;pdb.set_trace()
         try:
             self.scaffolds.check_edge(u,v)
-        except HiCAssemblerException, e:
+        except HiCAssemblerException as e:
 #            print "edge exception {}".format(e)
             return
 
@@ -691,7 +691,7 @@ class HiCAssembler:
 #            print "[{}] an error joining {} and {} has been made\n {} \n{}"\
 #                "".format(inspect.stack()[0][3], u, v, attr, inspect.stack()[1][3])
         if debug and abs(u - v) > 20:
-            print "BAD error made {},{}".format(u,v)
+            print("BAD error made {},{}".format(u,v))
         """
             print "neighbors u {}, neighbors v {}".format(self.G3[u], self.G3[v])
             def print_part_pat(v):
@@ -752,7 +752,7 @@ class HiCAssembler:
                    If set to two, the function exists when
                    all contigs have at least two neighbors.
         """
-        print "[{}]".format(inspect.stack()[0][3])
+        print("[{}]".format(inspect.stack()[0][3]))
 
         # consider only the upper triangle of the
         # matrix and convert it to COO for quick
@@ -777,7 +777,7 @@ class HiCAssembler:
         for index in order_index:
             counter += 1
             if counter % 10000 == 0:
-                print "[{}] {}".format(inspect.stack()[0][3], counter)
+                print("[{}] {}".format(inspect.stack()[0][3], counter))
             row = ma.row[index]
             col = ma.col[index]
             if col == row:
@@ -852,7 +852,7 @@ class HiCAssembler:
         """
         returns the indeces of an ordered python list
         """
-        return sorted(range(len(seq)), key=seq.__getitem__)
+        return sorted(list(range(len(seq))), key=seq.__getitem__)
 
 
     @staticmethod
@@ -911,7 +911,7 @@ class HiCAssembler:
                      "./prepros_g_{}.gml".format(self.iteration))
 
         cen = nx.degree(G)
-        high_deg, degree = zip(*cen.iteritems())
+        high_deg, degree = list(zip(*iter(cen.items())))
         # sort hubs by increassing degree and filter by 
         # degree > 2
         high_deg = [high_deg[x] for x in HiCAssembler.argsort(degree) if degree[x] > 2]
@@ -922,8 +922,8 @@ class HiCAssembler:
                 # of the overlap graph
                 u = paths[x][0]
                 to_keep = []
-                weights, nodes = zip(*[(v['weight'], k)
-                                       for k, v in G[node].iteritems()])
+                weights, nodes = list(zip(*[(v['weight'], k)
+                                       for k, v in G[node].items()]))
                 
                 # filter the nodes list to keep decided edges
                 nodes = [nodes[idx] for idx, value in enumerate(weights) if value < max_int]
@@ -943,7 +943,7 @@ class HiCAssembler:
                 log.debug("High degree node {} {} removed "
                               "from graph".format(node,
                                                   G[node]))
-                G.remove_edges_from([(node, y) for y in G[node].keys() if y not in to_keep])
+                G.remove_edges_from([(node, y) for y in list(G[node].keys()) if y not in to_keep])
                 
         # first pass
         # remove all hubs.
@@ -951,7 +951,7 @@ class HiCAssembler:
         # whose edges weight do not show a power law decay.
 
         cen = nx.degree(G)
-        high_deg, degree = zip(*cen.iteritems())
+        high_deg, degree = list(zip(*iter(cen.items())))
         # sort hubs by increassing degree and filter by 
         # degree > 2
         high_deg = [high_deg[x] for x in HiCAssembler.argsort(degree) if degree[x] > 2]
@@ -983,9 +983,9 @@ class HiCAssembler:
             """
             if 2==2:
 #            else:
-                direct_neighbors = G[node].keys()
+                direct_neighbors = list(G[node].keys())
                 if add_first_neighbors:
-                    first_neighbors =HiCAssembler.flatten_list([G[x].keys()
+                    first_neighbors =HiCAssembler.flatten_list([list(G[x].keys())
                                                                for x in direct_neighbors])
                     neighbors = np.unique(direct_neighbors + first_neighbors)
                 else:
@@ -993,11 +993,11 @@ class HiCAssembler:
                 fixed_paths = HiCAssembler.get_fixed_paths(G, neighbors, max_int)
                 if len(neighbors)-len(fixed_paths) > 5:
                     if debug:
-                        print "node {} has too many neighbors {}\n{}\n{}\n{}".format(
+                        print("node {} has too many neighbors {}\n{}\n{}\n{}".format(
                         node,neighbors,
                         [self.paths[x] for x in neighbors],
                         [int(self.cmatrix[node, x]) 
-                         for x in neighbors], G[node])
+                         for x in neighbors], G[node]))
                     continue
 #                    G.remove_edges_from([(node, y) for y in direct_neighbors])
                 else:
@@ -1024,7 +1024,7 @@ class HiCAssembler:
                             if abs(tn - node) != 1:
                                 correct = False
                         if correct is False:
-                            print "WRONG bw permutation of node: {} is: "\
+                            print("WRONG bw permutation of node: {} is: "\
                                 "{}\n{}\n{}\n{}".format(
                                 node,
                                 bw_order,
@@ -1032,11 +1032,11 @@ class HiCAssembler:
                                 [int(self.cmatrix[bw_order[x], bw_order[x+1]]) 
                                  for x in range(len(bw_order)-1)],
                                 [int(self.matrix[bw_order[x], bw_order[x+1]]) 
-                                 for x in range(len(bw_order)-1)])
+                                 for x in range(len(bw_order)-1)]))
                             self.bad_bw += 1
 #                            import pdb;pdb.set_trace()
                         else:
-                            print "bw worked fine!"
+                            print("bw worked fine!")
                             self.good_bw += 1
                     G.remove_edges_from([(node, y) for y in direct_neighbors
                                          if y not in true_neigh])
@@ -1045,14 +1045,14 @@ class HiCAssembler:
         ## third pass:
         # remove any hub left in the graph
         cen = nx.degree(G)
-        high_deg = [k for k, v in cen.iteritems() if v > 2]
+        high_deg = [k for k, v in cen.items() if v > 2]
         while len(high_deg) > 0:
             node = high_deg.pop(0)
             if G.degree(node) <=2:
                 continue
-            direct_neighbors = G[node].keys()
+            direct_neighbors = list(G[node].keys())
             if add_first_neighbors:
-                first_neighbors =HiCAssembler.flatten_list([G[x].keys()
+                first_neighbors =HiCAssembler.flatten_list([list(G[x].keys())
                                                            for x in direct_neighbors])
                 neighbors = np.unique(direct_neighbors + first_neighbors)
             else:
@@ -1060,23 +1060,23 @@ class HiCAssembler:
             fixed_paths = HiCAssembler.get_fixed_paths(G, neighbors, max_int)
             if len(neighbors)-len(fixed_paths) > 5:
                 if debug:
-                    print "node {} has too many neighbors {}\n{}\n{}\n{}".format(
+                    print("node {} has too many neighbors {}\n{}\n{}\n{}".format(
                     node,neighbors,
                     [self.paths[x] for x in neighbors],
                     [int(self.cmatrix[node, x]) 
-                     for x in neighbors], G[node])
+                     for x in neighbors], G[node]))
                 G.remove_edges_from([(node, y) for y in direct_neighbors])
             else:
                 log.debug("High degree node {} {} removed "
                               "from graph".format(node,
                                                   G[node]))
-                G.remove_edges_from([(node, y) for y in G[node].keys()])
+                G.remove_edges_from([(node, y) for y in list(G[node].keys())])
             
         ### just for debugging purposes
         cen = nx.degree(G)
-        high_deg = [k for k, v in cen.iteritems() if v > 2]
+        high_deg = [k for k, v in cen.items() if v > 2]
         if len(high_deg):
-            print "not all hubs were flattened {}".format(high_deg)
+            print("not all hubs were flattened {}".format(high_deg))
             import pdb;pdb.set_trace()
         #####
 
@@ -1103,12 +1103,12 @@ class HiCAssembler:
                     for edge in G.edges(nodes):
                         G.remove_edge(*edge)
                     G.add_path(bw_order)
-                    print '[{}] The nodes form a closed loop' \
+                    print('[{}] The nodes form a closed loop' \
                         'because no opposite sides exist' \
-                        'bw order {}'.format(inspect.stack()[0][3], bw_order)
+                        'bw order {}'.format(inspect.stack()[0][3], bw_order))
                 else: 
-                    print "closed loop found but is too large for bw "\
-                        "permutation. Removing weakest link" 
+                    print("closed loop found but is too large for bw "\
+                        "permutation. Removing weakest link") 
 
         # add a label to the nodes
         for node in G.nodes(data=True):
@@ -1220,7 +1220,7 @@ class HiCAssembler:
         group: dictionary containing as key the contig_id, and as value
                a duple with the start and end indices of the group.
         """
-        contig_id, c_start, c_end, extra = zip(*contig_list)
+        contig_id, c_start, c_end, extra = list(zip(*contig_list))
 
         prev = None
         in_group = False
@@ -1498,8 +1498,8 @@ class HiCAssembler:
          <-- --> 1,1
 
         """
-        print "[{}] reading scaffolding data based on PE {} ".format(
-            inspect.stack()[0][3], scaffolds_file.name)
+        print("[{}] reading scaffolding data based on PE {} ".format(
+            inspect.stack()[0][3], scaffolds_file.name))
 
         contig_name2id = dict([(scaffolds.id2contig_name[x],x) 
                                for x in range(len(scaffolds.id2contig_name))])
@@ -1605,8 +1605,8 @@ class HiCAssembler:
                                        source_direction=source,
                                        target_direction=target, D=D,
                                        PE_scaffold=True)
-                except Exception, e:
-                    print e
+                except Exception as e:
+                    print(e)
                     import pdb;pdb.set_trace()
 
                 prev_contig_name = contig_name
@@ -1649,7 +1649,7 @@ class Scaffolds:
         a contig.
         """
         from collections import defaultdict
-        label, start, end, coverage = zip(*cut_intervals)
+        label, start, end, coverage = list(zip(*cut_intervals))
         length = np.array(end) - np.array(start)
         prev_label = None
         i = 1
@@ -1694,7 +1694,7 @@ class Scaffolds:
     def add_contig(self, contig_name, **attr):
         self.id2contig_name.append(contig_name)
         contig_id = len(self.id2contig_name) - 1
-        if 'name' not in attr.keys():
+        if 'name' not in list(attr.keys()):
             attr['name'] = contig_name
         attr['id'] = contig_id
         attr['label'] = '{}'.format(contig_id)
@@ -1949,8 +1949,8 @@ class Scaffolds:
         The semicolon separates the contigs that are merged to the left
         or to the right
         """
-        print "[{}] reading scaffolding data based on PE {} ".format(
-            inspect.stack()[0][3], scaffolds_file)
+        print("[{}] reading scaffolding data based on PE {} ".format(
+            inspect.stack()[0][3], scaffolds_file))
 
         PE_scaffolds = []
         PE_length = []
@@ -1992,7 +1992,7 @@ class Scaffolds:
 
         # append all ids that were
         # not considered in the scaffolds_file as singletons
-        for scaf in self.contig2id.values():
+        for scaf in list(self.contig2id.values()):
             PE_scaffolds.append([scaf])
 
         for PE_scaf in PE_scaffolds:
@@ -2049,16 +2049,16 @@ class Overlap:
             basename = path.basename(overlap_file)
             filename = '{}{}.gpickle'.format(TEMP_FOLDER, basename)
             try:
-                print "loading pickled overlap {}".format(filename)
+                print("loading pickled overlap {}".format(filename))
                 G = nx.read_gpickle(filename)
                 return G
             except:
-                print "no saved pickled overlap found"
+                print("no saved pickled overlap found")
                 pass
 
         
-        print "[{}] reading overlap graph {} ".format(
-            inspect.stack()[0][3], overlap_file)
+        print("[{}] reading overlap graph {} ".format(
+            inspect.stack()[0][3], overlap_file))
 
         if overlap_file.endswith(".gz"):
             fh = gzip.open(overlap_file, 'rb')
@@ -2132,10 +2132,10 @@ class Overlap:
                 u,v = v,u
             attr['source_direction'] = 0 if overlap_data['start_a'] == 0 else 1
             attr['target_direction'] = 0 if overlap_data['start_b'] == 0 else 1
-            print "direct overlap between {}, {} found.".format(u,v)
+            print("direct overlap between {}, {} found.".format(u,v))
         if len(s_path) == 3:
             attr['shared_neighbor'] = True
-            print "indirect overlap between {}, {} {} found.".format(u,v, s_path)
+            print("indirect overlap between {}, {} {} found.".format(u,v, s_path))
             # this case is complicated unless there is only 
             # one short path, but even though it is still
             # possible to assume that the shortest path

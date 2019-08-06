@@ -223,7 +223,7 @@ class HiCAssembler:
 
         hic = self.reorder_matrix(max_num_bins=int(1e6), rename_scaffolds=True)
         hic.save(self.out_folder + "/final_matrix.h5")
-        print self.N50
+        print(self.N50)
 
         return self.get_contig_order()
 
@@ -272,9 +272,9 @@ class HiCAssembler:
 
         """
         nxG = nx.Graph()
-        for node_id, node in orig_scaff.scaffold.node.iteritems():
+        for node_id, node in orig_scaff.scaffold.node.items():
             nn = node.copy()
-            for attr, value in nn.iteritems():
+            for attr, value in nn.items():
                 if isinstance(value, np.int64):
                     nn[attr] = int(value)
                 elif isinstance(value, np.float64):
@@ -342,10 +342,10 @@ class HiCAssembler:
         -------
         G
         """
-        node_degree_mst = dict(G.degree(G.node.keys()))
-        for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k, v): v, reverse=True):
+        node_degree_mst = dict(G.degree(list(G.node.keys())))
+        for node, degree in sorted(iter(node_degree_mst.items()), key=lambda k_v1: k_v1[1], reverse=True):
             if degree > 2 and node not in exclude:
-                adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
+                adj = sorted(iter(G.adj[node].items()), key=lambda k_v: k_v[1]['weight'])
                 # remove the weakest edges but only if either of the nodes is not a hub
                 for adj_node, attr in adj[:-2]:
                     log.debug("Removing weak edge {}-{} weight: {}".format(node, adj_node, attr['weight']))
@@ -372,7 +372,7 @@ class HiCAssembler:
 
         """
         backbones = set()
-        for node_id, attr in graph.node.iteritems():
+        for node_id, attr in graph.node.items():
             if 'is_backbone' in attr:
                 backbones.add(node_id)
 
@@ -440,12 +440,12 @@ class HiCAssembler:
         # get backbone_id neighbors
         path_list = []
         seen = set([backbone_node])
-        for adj, weight in sorted(graph.adj[backbone_node].iteritems(), key=lambda (k, v): v['weight'])[::-1]:
+        for adj, weight in sorted(iter(graph.adj[backbone_node].items()), key=lambda k_v2: k_v2[1]['weight'])[::-1]:
             path = [backbone_node]
             while True:
                 path.append(adj)
                 seen.add(adj)
-                adj_list = [x for x in graph.adj[adj].keys() if x not in seen]
+                adj_list = [x for x in list(graph.adj[adj].keys()) if x not in seen]
                 if len(adj_list) == 0:
                     break
                 adj = adj_list[0]
@@ -618,9 +618,9 @@ class HiCAssembler:
         # small contig/scaffolds removed at the beginning that are stored in the self.scaffolds_graph.remove_scaffolds.
         # Basically, all so called backbone nodes that are not connected to the scaffolds that we want to put back
         # are deleted.
-        for node_id in self.scaffolds_graph.scaffold.node.keys():
+        for node_id in list(self.scaffolds_graph.scaffold.node.keys()):
             # check that the backbone node is not adjacent to a removed node.
-            if len(set(nxG.adj[node_id].keys()).intersection(self.scaffolds_graph.removed_scaffolds.node.keys())) == 0:
+            if len(set(nxG.adj[node_id].keys()).intersection(list(self.scaffolds_graph.removed_scaffolds.node.keys()))) == 0:
                 nxG.remove_node(node_id)
 
         # remove backbone edges. That is, if there is some edge between two backbone nodes, this is removed (see
@@ -669,7 +669,7 @@ class HiCAssembler:
                 for path_u, path_v in zip(best_path[:-1], best_path[1:]):
                     self.scaffolds_graph.add_edge_matrix_bins(path_u[-1], path_v[0])
 
-                log.debug("No backbone found for branch with nodes: {}".format(branch.node.keys()))
+                log.debug("No backbone found for branch with nodes: {}".format(list(branch.node.keys())))
                 log.info("Scaffolds without a backbone node were added: {}".format(path))
                 continue
 
@@ -796,7 +796,7 @@ class HiCAssembler:
         # To insert the removed scaffolds an edge in the assembled scaffolds has to be removed. This
         # edge is the edge containing the backbone_bin.
         adjacent_backbone_bin = None
-        for adj in self.scaffolds_graph.matrix_bins.adj[backbone_bin].keys():
+        for adj in list(self.scaffolds_graph.matrix_bins.adj[backbone_bin].keys()):
             if self.scaffolds_graph.matrix_bins.node[adj]['name'] != self.scaffolds_graph.matrix_bins.node[backbone_bin]['name']:
                 adjacent_backbone_bin = adj
                 break
@@ -860,13 +860,13 @@ class HiCAssembler:
 
         tuple_ = []
         # find the tad score and position of boundaries with significant pvalues
-        for idx, pval in ft.boundaries['pvalues'].iteritems():
+        for idx, pval in ft.boundaries['pvalues'].items():
             tuple_.append((ft.bedgraph_matrix['chrom'][idx],
                            ft.bedgraph_matrix['chr_start'][idx],
                            ft.bedgraph_matrix['chr_end'][idx],
                            np.mean(ft.bedgraph_matrix['matrix'][idx])))
 
-        scaffold, start, end, tad_score = zip(*tuple_)
+        scaffold, start, end, tad_score = list(zip(*tuple_))
         tad_score = np.array(tad_score)
         # compute a zscore of the tad_score to select the lowest ranking boundaries.
         zscore = (tad_score - np.mean(tad_score)) / np.std(tad_score)
@@ -989,8 +989,8 @@ class HiCAssembler:
         cbar = fig.colorbar(img3, cax=cax)
         cbar.solids.set_edgecolor("face")  # to avoid white lines in the color bar in pdf plots
 
-        ticks = [pos[0] for pos in chrbin_boundaries.values()]
-        labels = chrbin_boundaries.keys()
+        ticks = [pos[0] for pos in list(chrbin_boundaries.values())]
+        labels = list(chrbin_boundaries.keys())
         axHeat2.set_xticks(ticks)
         if len(labels) < 40:
             axHeat2.set_xticklabels(labels, size=3, rotation=90)
@@ -999,7 +999,7 @@ class HiCAssembler:
 
         if add_vlines:
             # add lines to demarcate 'super scaffolds'
-            vlines = [x[0] for x in hic.chromosomeBinBoundaries.values()]
+            vlines = [x[0] for x in list(hic.chromosomeBinBoundaries.values())]
             axHeat2.vlines(vlines, 1, ma.shape[0], linewidth=0.1)
             axHeat2.set_ylim(ma.shape[0], 0)
         axHeat2.get_yaxis().set_visible(False)
@@ -1138,13 +1138,13 @@ class HiCAssembler:
             scaff_order[idx].append((scaff_name, scaff_start, scaff_end, direction))
 
         # scaffolds that were removed and could not be put back need to be returned as well
-        for scaff in self.scaffolds_graph.removed_scaffolds.node.values():
+        for scaff in list(self.scaffolds_graph.removed_scaffolds.node.values()):
             idx += 1
             scaff_order[idx] = [(scaff['name'], scaff['start'], scaff['end'], '+')]
 
         if add_split_contig_name is False:
             scaff_order_renamed = {}
-            for idx, scaff_path in scaff_order.iteritems():
+            for idx, scaff_path in scaff_order.items():
                 scaff_order_renamed[idx] = []
                 for scaff_name, scaff_start, scaff_end, scaff_direction in scaff_path:
                     # check if node name has an indication that it was split (by ending in '/n')
@@ -1156,7 +1156,7 @@ class HiCAssembler:
 
         # brute force comparison
         not_found_list = {}
-        for idx, hic_scaff_order in scaff_order.iteritems():
+        for idx, hic_scaff_order in scaff_order.items():
             not_found_list[idx] = []
             for super_scaff in super_scaffolds:
                 match = False
@@ -1167,7 +1167,7 @@ class HiCAssembler:
                 not_found_list[idx].append(hic_scaff_order)
 
         log.debug(not_found_list)
-        return scaff_order.values()
+        return list(scaff_order.values())
 
     def reorder_matrix(self, max_num_bins=4000, rename_scaffolds=False):
         """
@@ -1215,7 +1215,7 @@ class HiCAssembler:
             scaffold_order = sorted_nicely(list([x for x in self.scaffolds_graph.scaffold]))
             # after merging, small scaffolds will be removed from the matrix. They need
             # to be removed from scaffold_order before reordering the chromosomes to avoid an error
-            scaffold_order = [x for x in scaffold_order if x in hic.chrBinBoundaries.keys()]
+            scaffold_order = [x for x in scaffold_order if x in list(hic.chrBinBoundaries.keys())]
             hic.reorderChromosomes(scaffold_order)
             hic.chromosomeBinBoundaries = hic.chrBinBoundaries
         else:
@@ -1318,7 +1318,7 @@ class HiCAssembler:
 
         hic = hicexplorer.hicMergeMatrixBins.remove_nans_if_needed(hic)
         # get the bins to merge
-        ref_name_list, start_list, end_list, coverage_list = zip(*hic.cut_intervals)
+        ref_name_list, start_list, end_list, coverage_list = list(zip(*hic.cut_intervals))
         new_bins = []
         bins_to_merge = []
         prev_ref = ref_name_list[0]

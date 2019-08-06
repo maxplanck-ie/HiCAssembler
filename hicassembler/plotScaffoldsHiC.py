@@ -1,4 +1,4 @@
-from __future__ import division
+
 import matplotlib
 matplotlib.use("Agg")
 
@@ -154,7 +154,7 @@ def plotHeatmap(ma, chrBinBoundaries, fig, position, args, cmap, xlabel=None,
                 ylabel=None, start_pos=None, start_pos2=None, pNorm=None, pAxis=None):
     log.debug("plotting heatmap")
     if ma.shape[0] < 5:
-        log.info("Matrix for {} too small to plot. Matrix size: {}".format(chrBinBoundaries.keys()[0], ma.shape))
+        log.info("Matrix for {} too small to plot. Matrix size: {}".format(list(chrBinBoundaries.keys())[0], ma.shape))
         return
     if pAxis is not None:
         axHeat2 = pAxis
@@ -282,7 +282,7 @@ def plotPerChr(hic_matrix, cmap, args):
 
     fig = plt.figure(figsize=(fig_width, fig_height), dpi=args.dpi)
 
-    chrom, start, end, _ = zip(*hic_matrix.cut_intervals)
+    chrom, start, end, _ = list(zip(*hic_matrix.cut_intervals))
     for idx, chrname in enumerate(chromosomes):
         log.debug('chrom: {}'.format(chrname))
 
@@ -350,13 +350,13 @@ def getRegion(args, ma):
     if args.matrix.endswith('.cool') or cooler.io.is_cooler(args.matrix):
         is_cooler = True
     if is_cooler:
-        idx1, start_pos1 = zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom and
+        idx1, start_pos1 = list(zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom and
                                  ((x[1] >= region_start and x[2] < region_end) or
                                   (x[1] < region_end and x[2] < region_end and x[2] > region_start) or
-                                  (x[1] > region_start and x[1] < region_end))])
+                                  (x[1] > region_start and x[1] < region_end))]))
     else:
-        idx1, start_pos1 = zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom and
-                                 x[1] >= region_start and x[2] < region_end])
+        idx1, start_pos1 = list(zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom and
+                                 x[1] >= region_start and x[2] < region_end]))
     if args.region2:
         chrom2, region_start2, region_end2 = translate_region(args.region2)
         if type(next(iter(ma.interval_trees))) in [np.bytes_, bytes]:
@@ -368,13 +368,13 @@ def getRegion(args, ma):
             if chrom2 not in list(ma.interval_trees):
                 exit("Chromosome name {} in --region2 not in matrix".format(change_chrom_names(chrom2)))
         if is_cooler:
-            idx2, start_pos2 = zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom2 and
+            idx2, start_pos2 = list(zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom2 and
                                      ((x[1] >= region_start2 and x[2] < region_end2) or
                                       (x[1] < region_end2 and x[2] < region_end2 and x[2] > region_start2) or
-                                      (x[1] > region_start2 and x[1] < region_end2))])
+                                      (x[1] > region_start2 and x[1] < region_end2))]))
         else:
-            idx2, start_pos2 = zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom2 and
-                                     x[1] >= region_start2 and x[2] < region_end2])
+            idx2, start_pos2 = list(zip(*[(idx, x[1]) for idx, x in enumerate(ma.cut_intervals) if x[0] == chrom2 and
+                                     x[1] >= region_start2 and x[2] < region_end2]))
     else:
         idx2 = idx1
         chrom2 = chrom

@@ -71,7 +71,7 @@ class TestClass:
         assert S.pg_base.path == {'c-0': [0, 1], 'c-2': [2, 3]}
         assert S.pg_base.node[0] == {'initial_path': [1], 'length': 10, 'name': 'c-0/0'}
         # paths in the initial graph should not be changed
-        print S.matrix_bins.path
+        print(S.matrix_bins.path)
         assert S.matrix_bins.path == {'c-3': [0], 'c-0': [1, 2, 3], 'c-2': [4, 5]}
 
     def test_reset_pg_initial(self):

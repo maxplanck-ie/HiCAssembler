@@ -263,8 +263,9 @@ class Scaffolds(object):
         >>> S = Scaffolds(hic)
         >>> list(S.matrix_bins.get_all_paths())
         [[0, 1, 2], [3, 4], [5]]
-        >>> list(S.scaffold.get_all_paths())
-        [['c-3'], ['c-2'], ['c-0']]
+        >>> import pprint
+        >>> pprint.pprint(list(S.scaffold.get_all_paths()))
+        [['c-0'], ['c-2'], ['c-3']]
 
         >>> S.remove_small_paths(20)
 
@@ -276,8 +277,8 @@ class Scaffolds(object):
         >>> list(S.scaffold.get_all_paths())
         [['c-0']]
 
-        >>> list(S.removed_scaffolds.get_all_paths())
-        [['c-3'], ['c-2']]
+        >>> pprint.pprint(list(S.removed_scaffolds.get_all_paths()))
+        [['c-2'], ['c-3']]
 
         >>> list(S.removed_bins.get_all_paths())
         [[3, 4], [5]]
@@ -642,7 +643,7 @@ class Scaffolds(object):
 
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
         >>> S = Scaffolds(hic)
-        >>> S.matrix.todense()
+        >>> S.matrix.todense().astype(int)
         matrix([[4, 4, 2, 2, 2, 2],
                 [4, 4, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2],
@@ -653,7 +654,7 @@ class Scaffolds(object):
         >>> S.matrix_bins.path == {'c-0': [0, 1, 2, 3, 4, 5]}
         True
         >>> S.split_and_merge_contigs(num_splits=3, normalize_method='none')
-        >>> S.matrix.todense()
+        >>> S.matrix.todense().astype(int)
         matrix([[12,  8,  8],
                 [ 8,  6,  8],
                 [ 8,  8,  6]])
@@ -817,7 +818,7 @@ class Scaffolds(object):
         else:
             self.matrix = reduced_matrix
 
-        assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
+        assert len(list(self.pg_base.node.keys())) == self.matrix.shape[0], "inconsistency error"
 
     @staticmethod
     def normalize_by_mean(matrix, paths):
@@ -1122,7 +1123,7 @@ class Scaffolds(object):
 
         The flank length is set to 2000, thus, groups of two should be
         selected
-        # make one matrix whith only one split contig c-0 whose
+        # make one matrix with only one split contig c-0 whose
         # bins have all 10 bp
         >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
         ... ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
@@ -1177,7 +1178,7 @@ class Scaffolds(object):
             """
             flank = []
             for n in _path:
-                flank_sum = sum(path_length[x] for n in flank)
+                flank_sum = sum(path_length[n] for n in flank)
                 if flank_sum > tolerance_max:
                     break
                 elif tolerance_min <= flank_sum <= tolerance_max:
@@ -1300,7 +1301,7 @@ class Scaffolds(object):
 
         # consolidate data:
         consolidated_dist_value = dict()
-        for k, v in dist_dict.iteritems():
+        for k, v in dist_dict.items():
             consolidated_dist_value[k] = {'mean': np.mean(v),
                                           'median': np.median(v),
                                           'max': np.max(v),
@@ -1370,7 +1371,7 @@ class Scaffolds(object):
 
         # consolidate data:
         consolidated_dist_value = dict()
-        for k, v in dist_dict.iteritems():
+        for k, v in dist_dict.items():
             consolidated_dist_value[k] = {'mean': np.mean(v),
                                           'median': np.median(v),
                                           'max': np.max(v),
@@ -1742,7 +1743,7 @@ class Scaffolds(object):
                 # get the bin id of the other nodes that link with the query node
                 adj_nodes = np.flatnonzero(matrix[node, :].todense().A)
                 for adj_node in adj_nodes:
-                    if adj_node not in self.pg_base.adj[node].keys():
+                    if adj_node not in list(self.pg_base.adj[node].keys()):
                         # remove the contact between node and adj_node in the matrix
                         matrix[node, adj_node] = 0
                         matrix[adj_node, adj_node] = 0
@@ -1750,8 +1751,8 @@ class Scaffolds(object):
 
         # define node degree threshold as the degree for the 90th percentile
         if node_degree_threshold is None:
-            node_degree_threshold = np.percentile(node_degree.values(), 99)
-        len_nodes_to_remove = len([x for x in node_degree.values() if x >= node_degree_threshold])
+            node_degree_threshold = np.percentile(list(node_degree.values()), 99)
+        len_nodes_to_remove = len([x for x in list(node_degree.values()) if x >= node_degree_threshold])
 
         if len_nodes_to_remove > 0:
             log.info(" {} ({:.2f}%) nodes will be removed because they are above the degree "
@@ -1759,7 +1760,7 @@ class Scaffolds(object):
             # remove from nxG nodes with degree > node_degree_threshold
             # nodes with high degree are problematic
             to_remove = []
-            for node, degree in node_degree.iteritems():
+            for node, degree in node_degree.items():
                 if degree >= node_degree_threshold:
                     # unset the rows and cols of hubs
                     # this is done in `matrix` as well
@@ -1794,7 +1795,7 @@ class Scaffolds(object):
         log.debug("saving maximum spanning tree network {}/mst_iter_{}.graphml".format(self.out_folder,
                                                                                       self.iteration))
         nx.write_graphml(nxG, "{}/mst_iter_{}.graphml".format(self.out_folder, self.iteration))
-        degree = np.array(dict(nxG.degree()).values())
+        degree = np.array(list(dict(nxG.degree()).values()))
         if len(degree[degree > 2]):
             # count number of hubs
             log.info("{} hubs were found".format(len(degree[degree>2])))
@@ -1842,8 +1843,8 @@ class Scaffolds(object):
         solved_paths = []
         seen = set()
 
-        node_degree_mst = dict(G.degree(G.node.keys()))
-        for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k,v): v, reverse=True):
+        node_degree_mst = dict(G.degree(list(G.node.keys())))
+        for node, degree in sorted(iter(node_degree_mst.items()), key=lambda k_v2: k_v2[1], reverse=True):
             if node in seen:
                 continue
             if degree > 2:
@@ -1951,8 +1952,8 @@ class Scaffolds(object):
         -------
         None
         """
-        node_degree_mst = dict(G.degree(G.node.keys()))
-        for node, degree in sorted(node_degree_mst.iteritems(), key=lambda (k, v): v, reverse=True):
+        node_degree_mst = dict(G.degree(list(G.node.keys())))
+        for node, degree in sorted(iter(node_degree_mst.items()), key=lambda k_v3: k_v3[1], reverse=True):
             if degree > 2:
                 # check if node already is inside a path
                 if len(self.pg_base.adj[node]) == 2:
@@ -1965,7 +1966,7 @@ class Scaffolds(object):
                 #  o---o---o----o---o
                 # a single node, is a node adj to a hub, whose other adj nodes have all degree 2
                 # adj_degree looks like: [(90, 2), (57, 2), (59, 1)], where is tuple is (node_id, degree)
-                adj_degree = sorted([(x, node_degree_mst[x]) for x in G.adj[node].keys()], key=lambda(k, v): v)[::-1]
+                adj_degree = sorted([(x, node_degree_mst[x]) for x in list(G.adj[node].keys())], key=lambda k_v: k_v[1])[::-1]
                 if self.iteration == 0 and len(adj_degree) == 3 and \
                    adj_degree[0][1] == 2 and adj_degree[1][1] == 2 and adj_degree[2][1] == 1:
                     node_to_prune = adj_degree[2][0]
@@ -1980,7 +1981,7 @@ class Scaffolds(object):
                         continue
                 # the adj variable looks like:
                 # [(90, {'weight': 1771.3}), (57, {'weight': 2684.6}), (59, {'weight': 14943.6})]
-                adj = sorted(G.adj[node].iteritems(), key=lambda (k, v): v['weight'])
+                adj = sorted(iter(G.adj[node].items()), key=lambda k_v1: k_v1[1]['weight'])
                 # remove the weakest edges but only if either of the nodes is not a hub
                 for adj_node, attr in adj[:-2]:
                     if len(G.adj[adj_node]) > 3:
@@ -2129,10 +2130,10 @@ class Scaffolds(object):
         else:
             path_graph_to_use = self.matrix_bins
 
-        for node_id, node in path_graph_to_use.node.iteritems():
+        for node_id, node in path_graph_to_use.node.items():
             # when saving a networkx object, numpy number types or lists, are not accepted
             nn = node.copy()
-            for attr, value in nn.iteritems():
+            for attr, value in nn.items():
                 if isinstance(value, np.int64):
                     nn[attr] = int(value)
                 elif isinstance(value, np.float64):
@@ -2570,7 +2571,7 @@ class Scaffolds(object):
         for node in nlist:
             path = self.pg_base[node]
             if node == 25:
-                print path
+                print(path)
             nxG.add_edge(path[0], path[-1], weight=1e4)
         nx.write_gml(nxG, "data/G_flanks.gml")
         exit()
@@ -2588,14 +2589,14 @@ class Scaffolds(object):
         solved_paths = []
         hub_below_5 = set()
         hub_over_5 = set()
-        for node, degree in node_degree.iteritems():
+        for node, degree in node_degree.items():
             if degree <= 4:
                 hub_below_5.add(node)
             else:
                 hub_over_5.add(node)
 
         # sort edges by decreasing weight
-        for u, v, weight in sorted(G.get_edges(), key=lambda(u, v, w): w, reverse=True):
+        for u, v, weight in sorted(G.get_edges(), key=lambda u_v_w: u_v_w[2], reverse=True):
             fixed_paths = []
             for node in G.adj(u) + G.adj(v):
                 if node in seen:
@@ -2690,7 +2691,7 @@ class Scaffolds(object):
         for index in order_index:
             counter += 1
             if counter % 10000 == 0:
-                print "[{}] {}".format(inspect.stack()[0][3], counter)
+                print("[{}] {}".format(inspect.stack()[0][3], counter))
             row = ma.row[index]
             col = ma.col[index]
             if col == row:
@@ -2931,8 +2932,9 @@ class SimpleGraph(object):
         >>> G = SimpleGraph(M, nodes)
         >>> G['a', 'b'] = 1
         >>> G['a', 'c'] = 1
-        >>> G.degree()
-        {'a': 2, 'c': 1, 'b': 1, 'd': 0}
+        >>> import pprint
+        >>> pprint.pprint(G.degree())
+        {'a': 2, 'b': 1, 'c': 1, 'd': 0}
         """
 
         # get degree of nodes

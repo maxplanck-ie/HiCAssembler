@@ -135,8 +135,15 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
 
         >>> S = Scaffolds(hic)
-        >>> S.scaffold.node['c-0']
-        {'direction': '+', 'end': 20, 'name': 'c-0', 'start': 0, 'length': 20, 'path': [0, 1]}
+        >>> import pprint
+        >>> pprint.pprint(S.scaffold.node['c-0'])
+        {'direction': '+',
+         'end': 20,
+         'length': 20,
+         'name': 'c-0',
+         'path': [0, 1],
+         'start': 0}
+
         """
 
         def add_scaffold_node(name, path, length):
@@ -271,7 +278,7 @@ class Scaffolds(object):
 
         The paths that are smaller or equal to 20 are c-2 and c-3.
         thus, only the path of 'c-0' is kept
-        >>> S.matrix_bins.path.values()
+        >>> list(S.matrix_bins.path.values())
         [[0, 1, 2]]
 
         >>> list(S.scaffold.get_all_paths())
@@ -282,8 +289,9 @@ class Scaffolds(object):
 
         >>> list(S.removed_bins.get_all_paths())
         [[3, 4], [5]]
-        >>> S.removed_bins.node[5]
-        {'end': 10, 'name': 'c-3', 'start': 0, 'length': 10, 'coverage': 1}
+        >>> import pprint
+        >>> pprint.pprint(S.removed_bins.node[5])
+        {'coverage': 1, 'end': 10, 'length': 10, 'name': 'c-3', 'start': 0}
 
         Test removal of bins and scaffold when two scaffolds are already merged
         >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 50, 1),
@@ -291,8 +299,8 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
         >>> S.add_edge(4, 5)
-        >>> list(S.scaffold.get_all_paths())
-        [['c-2', 'c-3'], ['c-0']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0'], ['c-2', 'c-3']]
         >>> S.remove_small_paths(30)
         >>> list(S.scaffold.get_all_paths())
         [['c-0']]
@@ -301,11 +309,11 @@ class Scaffolds(object):
 
         Test split_scaffolds
         >>> S.restore_scaffold('c-2')
-        >>> list(S.scaffold.get_all_paths())
-        [['c-2', 'c-3'], ['c-0']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0'], ['c-2', 'c-3']]
         >>> S.remove_small_paths(30, split_scaffolds=True)
-        >>> list(S.removed_scaffolds.get_all_paths())
-        [['c-3'], ['c-2']]
+        >>> sorted(list(S.removed_scaffolds.get_all_paths()))
+        [['c-2'], ['c-3']]
         """
 
         to_remove = []
@@ -318,7 +326,7 @@ class Scaffolds(object):
             length = (sum([self.matrix_bins.node[x]['length'] for x in path]))
 
             if length <= min_length:
-                log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
+                log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(path[0]), length))
                 self._remove_bin_path(path, split_scaffolds=split_scaffolds)
                 to_remove.extend(path)
                 to_remove_paths.append(path)
@@ -426,13 +434,13 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
         >>> S.remove_small_paths(20)
-        >>> list(S.removed_scaffolds.get_all_paths())
-        [['c-3'], ['c-2']]
+        >>> sorted(list(S.removed_scaffolds.get_all_paths()))
+        [['c-2'], ['c-3']]
         >>> S.restore_scaffold('c-2')
         >>> list(S.removed_scaffolds.get_all_paths())
         [['c-3']]
-        >>> list(S.scaffold.get_all_paths())
-        [['c-2'], ['c-0']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0'], ['c-2']]
         >>> list(S.matrix_bins.get_all_paths())
         [[0, 1, 2], [3, 4]]
         >>> list(S.removed_bins.get_all_paths())
@@ -444,14 +452,14 @@ class Scaffolds(object):
         >>> hic = get_test_matrix(cut_intervals=cut_intervals)
         >>> S = Scaffolds(hic)
         >>> S.add_edge(4, 5)
-        >>> list(S.scaffold.get_all_paths())
-        [['c-2', 'c-3'], ['c-0']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0'], ['c-2', 'c-3']]
         >>> list(S.matrix_bins.get_all_paths())
         [[0, 1, 2], [3, 4, 5]]
         >>> S.remove_small_paths(30)
         >>> S.restore_scaffold('c-2')
-        >>> list(S.scaffold.get_all_paths())
-        [['c-2', 'c-3'], ['c-0']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0'], ['c-2', 'c-3']]
         >>> list(S.matrix_bins.get_all_paths())
         [[0, 1, 2], [3, 4, 5]]
         """
@@ -507,7 +515,7 @@ class Scaffolds(object):
         [[0, 1, 2]]
 
         The matrix is reduced
-        >>> S.matrix.todense()
+        >>> S.matrix.todense().astype(int)
         matrix([[ 2,  8,  5],
                 [ 8,  8, 15],
                 [ 5, 15,  0]])
@@ -525,7 +533,7 @@ class Scaffolds(object):
             length_total += length
 
             if length <= min_length:
-                log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(x), length))
+                log.debug("Removing path {}, length {}".format(self.matrix_bins.get_path_name_of_node(path[0]), length))
                 to_remove.extend(path)
                 to_remove_paths.append(path)
                 removed_length_total += length
@@ -664,51 +672,52 @@ class Scaffolds(object):
         {'c-0': [0, 1, 2]}
         >>> len(S.pg_base.node)
         3
-        >>> S.pg_base.node
-        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0_0'}, \
-1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-0_1'}, \
-2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-0_2'}}
+        >>> import pprint
+        >>> pprint.pprint(S.pg_base.node)
+        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0_0'},
+         1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-0_1'},
+         2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-0_2'}}
 
         Same matrix as before, but this time normalized by mean
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=3, normalize_method='mean')
         >>> S.matrix.todense()
-        matrix([[ 3. ,  2. ,  2. ],
-                [ 2. ,  1.5,  2. ],
-                [ 2. ,  2. ,  1.5]])
+        matrix([[3. , 2. , 2. ],
+                [2. , 1.5, 2. ],
+                [2. , 2. , 1.5]])
 
         Same matrix as before, but this time normalized by ice
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=3, normalize_method='ice')
         >>> S.matrix.todense()
-        matrix([[ 8.97254   ,  7.50474504,  7.50474504],
-                [ 7.50474504,  7.06169578,  9.41559437],
-                [ 7.50474504,  9.41559437,  7.06169578]])
+        matrix([[8.97254   , 7.50474504, 7.50474504],
+                [7.50474504, 7.06169578, 9.41559437],
+                [7.50474504, 9.41559437, 7.06169578]])
 
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
         >>> S.matrix.todense()
-        matrix([[48]])
+        matrix([[48]], dtype=int64)
 
         >>> cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-1', 0, 10, 1),
         ... ('c-1', 10, 20, 1), ('c-2', 0, 10, 1), ('c-2', 10, 20, 1)]
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
         >>> S = Scaffolds(hic)
-        >>> S.matrix.todense()
+        >>> S.matrix.todense().astype(int)
         matrix([[4, 4, 2, 2, 2, 2],
                 [4, 4, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2]])
-        >>> S.matrix_bins.path # == {'c-0': [0, 1, 2, 3, 4, 5]}
-        {'c-2': [4, 5], 'c-1': [2, 3], 'c-0': [0, 1]}
+        >>> pprint.pprint(S.matrix_bins.path) # == {'c-0': [0, 1, 2, 3, 4, 5]}
+        {'c-0': [0, 1], 'c-1': [2, 3], 'c-2': [4, 5]}
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
 
-        >>> S.pg_base.node
-        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0'}, \
-1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1'}, \
-2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2'}}
+        >>> pprint.pprint(S.pg_base.node)
+        {0: {'initial_path': [0, 1], 'length': 20, 'name': 'c-0'},
+         1: {'initial_path': [2, 3], 'length': 20, 'name': 'c-1'},
+         2: {'initial_path': [4, 5], 'length': 20, 'name': 'c-2'}}
 
         >>> S.matrix_bins.node[0]['merged_path_id']
         0
@@ -716,7 +725,7 @@ class Scaffolds(object):
         2
         >>> S.scaffold.node['c-1']['merged_path_id']
         1
-        >>> S.matrix.todense()
+        >>> S.matrix.todense().astype(int)
         matrix([[12,  8,  8],
                 [ 8,  6,  8],
                 [ 8,  8,  6]])
@@ -726,18 +735,18 @@ class Scaffolds(object):
         >>> S.add_edge(1, 2)
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
         >>> S.matrix.todense()
-        matrix([[48]])
+        matrix([[48]], dtype=int64)
 
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='mean')
         >>> S.matrix.todense()
-        matrix([[ 3. ,  2. ,  2. ],
-                [ 2. ,  1.5,  2. ],
-                [ 2. ,  2. ,  1.5]])
+        matrix([[3. , 2. , 2. ],
+                [2. , 1.5, 2. ],
+                [2. , 2. , 1.5]])
 
         Now there are not paths.
-        >>> S.pg_base.path
-        {'c-2': [2], 'c-1': [1], 'c-0': [0]}
+        >>> pprint.pprint(S.pg_base.path)
+        {'c-0': [0], 'c-1': [1], 'c-2': [2]}
         """
 
         paths_flatten = []
@@ -818,7 +827,7 @@ class Scaffolds(object):
         else:
             self.matrix = reduced_matrix
 
-        assert len(list(self.pg_base.node.keys())) == self.matrix.shape[0], "inconsistency error"
+        assert len(self.pg_base.node.keys()) == self.matrix.shape[0], "inconsistency error"
 
     @staticmethod
     def normalize_by_mean(matrix, paths):
@@ -1054,7 +1063,7 @@ class Scaffolds(object):
             Parameters
             ----------
             whole : integer to be divided
-            parts : numbeer of parts
+            parts : number of parts
 
             Returns
             -------
@@ -1070,7 +1079,7 @@ class Scaffolds(object):
             parts_left = parts
             count = 0
             for i in range(parts):
-                size = (remain + parts_left - 1) / parts_left
+                size = (remain + parts_left - 1) // parts_left
                 if i % 2 == 0:
                     arr[count] = int(size)
                     count += 1
@@ -1335,11 +1344,12 @@ class Scaffolds(object):
         >>> stats[2]['mean']
         4.25
 
-        >>> stats.keys()
+        >>> list(stats.keys())
         [1, 2, 3, 4, 5]
 
-        >>> stats[1]
-        {'max': 15, 'min': 1, 'median': 7.0, 'len': 5, 'mean': 7.4000000000000004}
+        >>> import pprint
+        >>> pprint.pprint(stats[1])
+        {'len': 5, 'max': 15, 'mean': 7.4, 'median': 7.0, 'min': 1}
 
         """
         log.info("Computing stats per distance")
@@ -1743,7 +1753,7 @@ class Scaffolds(object):
                 # get the bin id of the other nodes that link with the query node
                 adj_nodes = np.flatnonzero(matrix[node, :].todense().A)
                 for adj_node in adj_nodes:
-                    if adj_node not in list(self.pg_base.adj[node].keys()):
+                    if adj_node not in self.pg_base.adj[node].keys():
                         # remove the contact between node and adj_node in the matrix
                         matrix[node, adj_node] = 0
                         matrix[adj_node, adj_node] = 0
@@ -1751,8 +1761,8 @@ class Scaffolds(object):
 
         # define node degree threshold as the degree for the 90th percentile
         if node_degree_threshold is None:
-            node_degree_threshold = np.percentile(list(node_degree.values()), 99)
-        len_nodes_to_remove = len([x for x in list(node_degree.values()) if x >= node_degree_threshold])
+            node_degree_threshold = np.percentile(node_degree.values(), 99)
+        len_nodes_to_remove = len([x for x in node_degree.values() if x >= node_degree_threshold])
 
         if len_nodes_to_remove > 0:
             log.info(" {} ({:.2f}%) nodes will be removed because they are above the degree "
@@ -1843,7 +1853,7 @@ class Scaffolds(object):
         solved_paths = []
         seen = set()
 
-        node_degree_mst = dict(G.degree(list(G.node.keys())))
+        node_degree_mst = dict(G.degree(G.node.keys()))
         for node, degree in sorted(iter(node_degree_mst.items()), key=lambda k_v2: k_v2[1], reverse=True):
             if node in seen:
                 continue
@@ -1952,7 +1962,7 @@ class Scaffolds(object):
         -------
         None
         """
-        node_degree_mst = dict(G.degree(list(G.node.keys())))
+        node_degree_mst = dict(G.degree(G.node.keys()))
         for node, degree in sorted(iter(node_degree_mst.items()), key=lambda k_v3: k_v3[1], reverse=True):
             if degree > 2:
                 # check if node already is inside a path
@@ -1966,7 +1976,7 @@ class Scaffolds(object):
                 #  o---o---o----o---o
                 # a single node, is a node adj to a hub, whose other adj nodes have all degree 2
                 # adj_degree looks like: [(90, 2), (57, 2), (59, 1)], where is tuple is (node_id, degree)
-                adj_degree = sorted([(x, node_degree_mst[x]) for x in list(G.adj[node].keys())], key=lambda k_v: k_v[1])[::-1]
+                adj_degree = sorted([(x, node_degree_mst[x]) for x in G.adj[node].keys()], key=lambda k_v4: k_v4[1])[::-1]
                 if self.iteration == 0 and len(adj_degree) == 3 and \
                    adj_degree[0][1] == 2 and adj_degree[1][1] == 2 and adj_degree[2][1] == 1:
                     node_to_prune = adj_degree[2][0]
@@ -2073,7 +2083,7 @@ class Scaffolds(object):
 
         >>> hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
         >>> S = Scaffolds(hic)
-        >>> S.matrix.todense()
+        >>> S.matrix.todense().astype(int)
         matrix([[4, 4, 2, 2, 2, 2],
                 [4, 4, 2, 2, 2, 2],
                 [2, 2, 2, 2, 2, 2],
@@ -2089,8 +2099,9 @@ class Scaffolds(object):
         for (0,1) and (1,2) should have a weight of 5.
         >>> G.adj[0]
         AtlasView({1: {'weight': 5.0}, 2: {'weight': 2.0}, 3: {'weight': 2.0}, 4: {'weight': 2.0}, 5: {'weight': 2.0}})
-        >>> G.node[0]
-        {'start': 0, 'length': 10, 'end': 10, 'name': 'c-0', 'coverage': 1}
+        >>> import pprint
+        >>> pprint.pprint(G.node[0])
+        {'coverage': 1, 'end': 10, 'length': 10, 'name': 'c-0', 'start': 0}
 
 
         The following matrix is used:
@@ -2201,10 +2212,16 @@ class Scaffolds(object):
         'c-1'
         >>> S.add_edge(0, 2)
 
+        >>> import pprint
         >>> S.scaffold.path
         {'c-0, c-1': ['c-0', 'c-1']}
-        >>> S.scaffold.node['c-0']
-        {'direction': '-', 'end': 20, 'name': 'c-0', 'start': 0, 'length': 20, 'path': [1, 0]}
+        >>> pprint.pprint(S.scaffold.node['c-0'])
+        {'direction': '-',
+         'end': 20,
+         'length': 20,
+         'name': 'c-0',
+         'path': [1, 0],
+         'start': 0}
         >>> (S.scaffold.node['c-0']['direction'], S.scaffold.node['c-1']['direction'])
         ('-', '+')
 
@@ -2215,14 +2232,24 @@ class Scaffolds(object):
         >>> S.add_edge(4, 3)
         >>> S.scaffold.path
         {'c-2, c-0, c-1': ['c-2', 'c-1', 'c-0']}
-        >>> S.scaffold.node['c-1']
-        {'direction': '-', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [3, 2]}
+        >>> pprint.pprint(S.scaffold.node['c-1'])
+        {'direction': '-',
+         'end': 30,
+         'length': 20,
+         'name': 'c-1',
+         'path': [3, 2],
+         'start': 10}
 
         Node c-0 should be back to orientation + and the path should be [0, 1]
-        >>> S.scaffold.node['c-0']
-        {'direction': '+', 'end': 20, 'name': 'c-0', 'start': 0, 'length': 20, 'path': [0, 1]}
+        >>> pprint.pprint(S.scaffold.node['c-0'])
+        {'direction': '+',
+         'end': 20,
+         'length': 20,
+         'name': 'c-0',
+         'path': [0, 1],
+         'start': 0}
 
-        >>> [S.scaffold.node[x]['direction'] for x in S.scaffold.path.values()[0]]
+        >>> [S.scaffold.node[x]['direction'] for x in list(S.scaffold.path.values())[0]]
         ['-', '-', '+']
         """
         scaffold_u = self.bin_id_to_scaff[_bin_u]
@@ -2316,11 +2343,16 @@ class Scaffolds(object):
         before adding an edge, 'c-0' and 'c-1' are not joined
         and the direction of 'c-1' is '+'
 
-        >>> S.matrix_bins.path
-        {'c-2': [4, 5], 'c-1': [2, 3], 'c-0': [0, 1]}
-        >>> S.scaffold.node['c-1']
-        {'direction': '+', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [2, 3]}
-
+        >>> import pprint
+        >>> pprint.pprint(S.matrix_bins.path)
+        {'c-0': [0, 1], 'c-1': [2, 3], 'c-2': [4, 5]}
+        >>> pprint.pprint(S.scaffold.node['c-1'])
+        {'direction': '+',
+         'end': 30,
+         'length': 20,
+         'name': 'c-1',
+         'path': [2, 3],
+         'start': 10}
         >>> S.add_edge(1, 3)
 
         c-0 and c-1 are joined and c-1 is inverted
@@ -2330,46 +2362,80 @@ class Scaffolds(object):
         >>> S.matrix_bins.path
         {'c-2': [4, 5], 'c-0, c-1': [0, 1, 3, 2]}
 
-        >>> S.scaffold.node['c-1']
-        {'direction': '-', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [3, 2]}
+        >>> pprint.pprint(S.scaffold.node['c-1'])
+        {'direction': '-',
+         'end': 30,
+         'length': 20,
+         'name': 'c-1',
+         'path': [3, 2],
+         'start': 10}
 
         >>> S.add_edge(2, 4)
         >>> S.scaffold.path
         {'c-0, c-1, c-2': ['c-0', 'c-1', 'c-2']}
 
-        >>> S.scaffold.node['c-1']
-        {'direction': '-', 'end': 30, 'name': 'c-1', 'start': 10, 'length': 20, 'path': [3, 2]}
+        >>> pprint.pprint(S.scaffold.node['c-1'])
+        {'direction': '-',
+         'end': 30,
+         'length': 20,
+         'name': 'c-1',
+         'path': [3, 2],
+         'start': 10}
 
         New test based on split_merge
         >>> S = Scaffolds(hic)
         >>> S.split_and_merge_contigs(num_splits=1, normalize_method='none')
 
-        >>> S.matrix_bins.path
-        {'c-2': [4, 5], 'c-1': [2, 3], 'c-0': [0, 1]}
-        >>> S.scaffold.node['c-1']
-        {'direction': '+', 'end': 30, 'name': 'c-1', 'merged_path_id': 1, 'start': 10, 'length': 20, 'path': [2, 3]}
+        >>> pprint.pprint(S.matrix_bins.path)
+        {'c-0': [0, 1], 'c-1': [2, 3], 'c-2': [4, 5]}
+        >>> pprint.pprint(S.scaffold.node['c-1'])
+        {'direction': '+',
+         'end': 30,
+         'length': 20,
+         'merged_path_id': 1,
+         'name': 'c-1',
+         'path': [2, 3],
+         'start': 10}
 
         after split and merge, we have matrix_bins and pg_base (pg_base being the merge of contigs)
         Now, the ids refer to the 'contig' id and not to the bin ids.
         Thus, 'c-0' id is 0, 'c-1' is 1 and 'c-2' is 2
         >>> S.add_edge(0, 2)
-        >>> S.matrix_bins.path
+        >>> pprint.pprint(S.matrix_bins.path)
         {'c-0, c-2': [0, 1, 5, 4], 'c-1': [2, 3]}
 
         >>> S.scaffold.path
         {'c-0, c-2': ['c-0', 'c-2']}
 
         # check that the direction attribute has been set to the nodes
-        >>> S.scaffold.node['c-0']
-        {'direction': '+', 'end': 20, 'name': 'c-0', 'merged_path_id': 0, 'start': 0, 'length': 20, 'path': [0, 1]}
+        >>> pprint.pprint(S.scaffold.node['c-0'])
+        {'direction': '+',
+         'end': 20,
+         'length': 20,
+         'merged_path_id': 0,
+         'name': 'c-0',
+         'path': [0, 1],
+         'start': 0}
         >>> S.add_edge(2,1)
         >>> S.matrix_bins.path
         {'c-0, c-2, c-1': [0, 1, 5, 4, 2, 3]}
 
-        >>> S.scaffold.node['c-1']
-        {'direction': '+', 'end': 30, 'name': 'c-1', 'merged_path_id': 1, 'start': 10, 'length': 20, 'path': [2, 3]}
-        >>> S.scaffold.node['c-2']
-        {'direction': '-', 'end': 20, 'name': 'c-2', 'merged_path_id': 2, 'start': 0, 'length': 20, 'path': [5, 4]}
+        >>> pprint.pprint(S.scaffold.node['c-1'])
+        {'direction': '+',
+         'end': 30,
+         'length': 20,
+         'merged_path_id': 1,
+         'name': 'c-1',
+         'path': [2, 3],
+         'start': 10}
+        >>> pprint.pprint(S.scaffold.node['c-2'])
+        {'direction': '-',
+         'end': 20,
+         'length': 20,
+         'merged_path_id': 2,
+         'name': 'c-2',
+         'path': [5, 4],
+         'start': 0}
         """
 
         # get the initial nodes that should be merged
@@ -2420,18 +2486,18 @@ class Scaffolds(object):
         >>> S.delete_edge_from_matrix_bins(1,2)
         Traceback (most recent call last):
         ...
-        ScaffoldException: *ERROR* Edge can not be deleted inside an scaffold.
+        Scaffolds.ScaffoldException: *ERROR* Edge can not be deleted inside an scaffold.
         Scaffold name: c-0, edge: 1-2
         >>> S.add_edge(2, 3)
         >>> list(S.get_all_paths())
         [[0, 1, 2, 3, 4], [5]]
-        >>> list(S.scaffold.get_all_paths())
-        [['c-3'], ['c-0', 'c-2']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0', 'c-2'], ['c-3']]
         >>> S.delete_edge_from_matrix_bins(2, 3)
         >>> list(S.get_all_paths())
         [[0, 1, 2], [3, 4], [5]]
-        >>> list(S.scaffold.get_all_paths())
-        [['c-3'], ['c-2'], ['c-0']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0'], ['c-2'], ['c-3']]
         """
         # delete edge in self.scaffold
         scaff_u = self.matrix_bins.node[u]['name']
@@ -2471,17 +2537,17 @@ class Scaffolds(object):
         >>> S.delete_edge_from_scaffolds('c-0', 'c-2')
         Traceback (most recent call last):
         ...
-        ScaffoldException: *ERROR* Edge can not be deleted because the scaffolds (c-0, c-2) are not connected.
+        Scaffolds.ScaffoldException: *ERROR* Edge can not be deleted because the scaffolds (c-0, c-2) are not connected.
         >>> S.add_edge(2, 3)
         >>> list(S.get_all_paths())
         [[0, 1, 2, 3, 4], [5]]
-        >>> list(S.scaffold.get_all_paths())
-        [['c-3'], ['c-0', 'c-2']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0', 'c-2'], ['c-3']]
         >>> S.delete_edge_from_scaffolds('c-0', 'c-2')
         >>> list(S.get_all_paths())
         [[0, 1, 2], [3, 4], [5]]
-        >>> list(S.scaffold.get_all_paths())
-        [['c-3'], ['c-2'], ['c-0']]
+        >>> sorted(list(S.scaffold.get_all_paths()))
+        [['c-0'], ['c-2'], ['c-3']]
         """
         # delete edge in self.scaffold
         if u not in self.scaffold.adj[v]:
@@ -2943,3 +3009,28 @@ class SimpleGraph(object):
         # convert degree to dictionary
         node_degree = dict([(self.index2label[x], node_degree[x]) for x in range(len(node_degree))])
         return node_degree
+
+
+if __name__ == '__main__':
+    pass
+    # cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
+    # ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
+    # hic = get_test_matrix(cut_intervals=cut_intervals)
+    # S = Scaffolds(hic)
+    # S.add_edge(2, 3)
+    # print(list(S.scaffold.get_all_paths()))
+
+#     import doctest
+# #    doctest.testmod()
+#     doctest.run_docstring_examples(Scaffolds.split_path, globals())
+    #
+    # cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
+    # ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
+    # A = csr_matrix(np.array([[2,2,1,1,1,1],[2,2,1,1,1,1],
+    # [1,1,1,1,1,1], [1,1,1,1,1,1], [1,1,1,1,1,1], [1,1,1,1,1,1]]))
+    # hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
+    # S = Scaffolds(hic)
+    #
+    #
+    # S.split_and_merge_contigs(num_splits=3, normalize_method='none')
+    # S.matrix.todense().astype(int)

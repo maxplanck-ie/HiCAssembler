@@ -295,7 +295,7 @@ class HiCAssembler:
         for u, v, weight in zip(matrix.row, matrix.col, matrix.data):
             if u == v:
                 continue
-            if weight < confidence_score:
+            if confidence_score is not None and weight < confidence_score:
                 continue
             scaff_u = orig_scaff.pg_base.node[u]['name']
             scaff_v = orig_scaff.pg_base.node[v]['name']
@@ -515,7 +515,7 @@ class HiCAssembler:
         >>> scrambled_intervals = [6,7, 2,3, 0,1, 8,9, 5,4]
         >>> cut_intervals = [cut_intervals[x] for x in scrambled_intervals]
         >>> hic.setMatrix(matrix, cut_intervals)
-        >>> hic.matrix.todense()
+        >>> hic.matrix.todense().astype(int)
         matrix([[100,  19,   5,   3,   1,   2,  19,   9,   9,   8],
                 [ 19, 100,   8,   5,   2,   3,   9,   8,  19,   9],
                 [  5,   8, 100,  19,   8,   9,   3,   2,   9,  19],

@@ -757,7 +757,7 @@ class Scaffolds(object):
                 # define the number of splits based on the target size
                 length = sum([self.matrix_bins.node[x]['length'] for x in path])
                 if target_size <= length:
-                    num_splits = length / target_size
+                    num_splits = length // target_size
                 else:
                     log.debug("path is too small ({:,}) to split for target size {:,}".format(length, target_size))
                     num_splits = 1

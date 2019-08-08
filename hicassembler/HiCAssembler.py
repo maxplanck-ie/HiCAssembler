@@ -144,7 +144,7 @@ class HiCAssembler:
             binsize = self.hic.getBinSize()
             if binsize < matrix_bin_size:
                 # make an smaller matrix having bins of around 25.000 bp
-                num_bins = matrix_bin_size / binsize
+                num_bins = matrix_bin_size // binsize
 
                 log.info("Reducing matrix size to {:,} bp (number of bins merged: {})".format(binsize, num_bins))
                 self.hic = HiCAssembler.merge_bins(self.hic, num_bins)
@@ -263,9 +263,9 @@ class HiCAssembler:
         >>> list(orig_scaff.matrix_bins.get_all_paths())
         [[0, 1], [2, 3], [4, 5]]
         >>> G = H.make_scaffold_network(orig_scaff)
-        >>> list(G.edges(data=True))
-        [('c-2', 'c-1', {'weight': 16.0}), ('c-2', 'c-0', {'weight': 42.0}), \
-('c-1', 'c-0', {'weight': 28.0})]
+        >>> sorted(list(G.edges(data=True)))
+        [('c-0', 'c-1', {'weight': 28.0}), ('c-0', 'c-2', {'weight': 42.0}), \
+('c-1', 'c-2', {'weight': 16.0})]
 
         >>> import shutil
         >>> shutil.rmtree(dirpath)
@@ -577,7 +577,7 @@ class HiCAssembler:
 
         # The resulting matrix should be ordered
         >>> hic = H.reorder_matrix()
-        >>> hic.matrix.todense()
+        >>> hic.matrix.todense().astype(int)
         matrix([[100,  19,   9,   8,   5,   3,   2,   1,   0,   0],
                 [ 19, 100,  20,   9,   8,   5,   3,   2,   1,   0],
                 [  9,  20, 100,  19,   9,   8,   5,   3,   2,   1],
@@ -599,8 +599,10 @@ class HiCAssembler:
         orig_scaff = Scaffolds(self.hic)
         orig_scaff.split_and_merge_contigs(num_splits=1, target_size=self.min_scaffold_length, normalize_method=normalize_method)
         orig_stats = orig_scaff.get_stats_per_split()
-        conf_score = orig_stats[1]['median']
-
+        try:
+            conf_score = orig_stats[1]['median']
+        except KeyError:
+            conf_score = None
         # re make orig_scaff a second time without splitting the scaffolds
         # as this is the structure needed for rest of the program
         orig_scaff = Scaffolds(self.hic)
@@ -1195,13 +1197,13 @@ class HiCAssembler:
         scaff_boundaries = OrderedDict()
         start_bin = 0
         end_bin = 0
-        num_bins_to_merge = hic.matrix.shape[0] / max_num_bins
+        num_bins_to_merge = hic.matrix.shape[0] // max_num_bins
 
         # reduce the density of the matrix if this one is too big
         if hic.matrix.shape[0] > max_num_bins and num_bins_to_merge > 1:
             # compute number of bins required to reduce resolution to desired
             # goal
-            num_bins_to_merge = hic.matrix.shape[0] / max_num_bins
+            num_bins_to_merge = hic.matrix.shape[0] // max_num_bins
             log.debug("Matrix size is too large for printing. Reducing the matrix by merging {} bins".
                       format(num_bins_to_merge))
             hic, map_old_to_merged = HiCAssembler.merge_bins(hic, num_bins_to_merge, skip_small=False,
@@ -1307,7 +1309,7 @@ class HiCAssembler:
         run merge_matrix
         >>> merge_matrix, map_id = HiCAssembler.merge_bins(hic, 2, return_bin_id_mapping=True)
         >>> merge_matrix.cut_intervals
-        [('a', 0, 20, 0.75), ('a', 20, 40, 0.55000000000000004), ('b', 40, 50, 1.0)]
+        [('a', 0, 20, 0.75), ('a', 20, 40, 0.55), ('b', 40, 50, 1.0)]
         >>> merge_matrix.matrix.todense()
         matrix([[120,  28,   1],
                 [ 28, 177,   4],
@@ -1331,7 +1333,7 @@ class HiCAssembler:
         mapping_old_to_merged_bin_ids = {}
         for idx, ref in enumerate(ref_name_list):
             if (count > 0 and count % num_bins == 0) or ref != prev_ref:
-                if skip_small is True and count < num_bins / 2:
+                if skip_small is True and count < num_bins // 2:
                     sys.stderr.write("{} has few bins ({}). Skipping it\n".format(prev_ref, count))
                 else:
                     coverage = np.mean(coverage_list[idx_start:idx])
@@ -1350,7 +1352,7 @@ class HiCAssembler:
             prev_ref = ref
             count += 1
 
-        if skip_small is True and count < num_bins / 2:
+        if skip_small is True and count < num_bins // 2:
             sys.stderr.write("{} has few bins ({}). Skipping it\n".format(prev_ref, count))
         else:
             coverage = np.mean(coverage_list[idx_start:])

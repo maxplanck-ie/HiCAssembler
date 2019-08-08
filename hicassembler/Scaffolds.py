@@ -1323,7 +1323,7 @@ class Scaffolds(object):
     def get_stats_per_split(self):
         """
         takes the information from all bins that are split
-        or merged and returns the a dictionary whose key is the distance between split bins
+        or merged and returns a dictionary whose key is the distance between split bins
         being 1, bins that are consecutive (or that the start positions are 1 bins apart),
         2 bins that are separated by one bin etc. The values of the dictionary are itself a dictionary
         whose keys are: mean, median, max, min and len and reflect the mean, median etc number of contacts. The
@@ -3009,28 +3009,3 @@ class SimpleGraph(object):
         # convert degree to dictionary
         node_degree = dict([(self.index2label[x], node_degree[x]) for x in range(len(node_degree))])
         return node_degree
-
-
-if __name__ == '__main__':
-    pass
-    # cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 1), ('c-0', 20, 30, 1),
-    # ('c-2', 0, 10, 1), ('c-2', 20, 30, 1), ('c-3', 0, 10, 1)]
-    # hic = get_test_matrix(cut_intervals=cut_intervals)
-    # S = Scaffolds(hic)
-    # S.add_edge(2, 3)
-    # print(list(S.scaffold.get_all_paths()))
-
-#     import doctest
-# #    doctest.testmod()
-#     doctest.run_docstring_examples(Scaffolds.split_path, globals())
-    #
-    # cut_intervals = [('c-0', 0, 10, 1), ('c-0', 10, 20, 2), ('c-0', 20, 30, 1),
-    # ('c-0', 30, 40, 1), ('c-0', 40, 50, 1), ('c-0', 50, 60, 1)]
-    # A = csr_matrix(np.array([[2,2,1,1,1,1],[2,2,1,1,1,1],
-    # [1,1,1,1,1,1], [1,1,1,1,1,1], [1,1,1,1,1,1], [1,1,1,1,1,1]]))
-    # hic = get_test_matrix(cut_intervals=cut_intervals, matrix=A)
-    # S = Scaffolds(hic)
-    #
-    #
-    # S.split_and_merge_contigs(num_splits=3, normalize_method='none')
-    # S.matrix.todense().astype(int)

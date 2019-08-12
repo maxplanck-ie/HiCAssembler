@@ -2149,6 +2149,8 @@ class Scaffolds(object):
                     nn[attr] = int(value)
                 elif isinstance(value, np.float64):
                     nn[attr] = float(value)
+                elif isinstance(value, np.str_):
+                    nn[attr] = str(value)
                 elif isinstance(value, list):
                     nn[attr] = ", ".join([str(x) for x in value])
 

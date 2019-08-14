@@ -612,7 +612,11 @@ class HiCAssembler:
         nxG = self.make_scaffold_network(orig_scaff, confidence_score=conf_score)
 
         nxG = nx.maximum_spanning_tree(nxG, weight='weight')
-        nx.write_graphml(nxG, self.out_folder + "/mst_for_small_Scaff_integration.graphml".format())
+
+        try:
+            nx.write_graphml(nxG, self.out_folder + "/mst_for_small_Scaff_integration.graphml".format())
+        except:
+            pass
 
         # 1. Identify branches
 

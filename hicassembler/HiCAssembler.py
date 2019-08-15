@@ -635,7 +635,10 @@ class HiCAssembler:
             if 'is_backbone' in nxG.node[u] and 'is_backbone' in nxG.node[v]:
                 nxG.remove_edge(u, v)
 
-        nx.write_graphml(nxG, "{}/backbone_put_back_scaffolds.graphml".format(self.out_folder))
+        try:
+            nx.write_graphml(nxG, "{}/backbone_put_back_scaffolds.graphml".format(self.out_folder))
+        except:
+            pass
         # now each connected component should only have a backbone node
         # and all the connected scaffolds that belong to that node.
         for branch in list(nx.connected_component_subgraphs(nxG)):

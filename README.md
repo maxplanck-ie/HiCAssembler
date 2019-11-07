@@ -82,7 +82,7 @@ The position of the assembly error is displayed by moving your cursor over it.
 Citation
 ---------
 Gina Renschler, Gautier Richard, Claudia Isabelle Keller Valsecchi, Sarah Toscano, Laura Arrigoni, Fidel Ramirez, Asifa Akhtar.
-**"Hi-C guided assemblies reveal conserved regulatory topologies on X and autosomes despite extensive genome shuffling",** bioRxiv (2019), doi: https://doi.org/10.1101/580969
+**"Hi-C guided assemblies reveal conserved regulatory topologies on X and autosomes despite extensive genome shuffling",** Genes & Development (2019), doi: https://doi.org/10.1101/gad.328971.119
 
 Examples
 --------

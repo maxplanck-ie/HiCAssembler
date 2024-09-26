@@ -35,7 +35,9 @@ If you want to install the latest version use:
 ```bash
 $ pip install git+https://github.com/maxplanck-ie/HiCAssembler.git
 ```
-
+> [!WARNING]
+> If you wanted to use a conda environment, create it with:
+> `$ mamba create -n hicassembler python~=2.7 'setuptools<=41' 'pip<=21' 'biopython<=1.76' 'hic2cool<=0.8' 'numexpr<=2.7' 'pyBigWig>=0.3.10' 'hicexplorer>=2.1.1' 'cooler>=0.7.6' 'networkx>=2.1'`, and then you will be able to pip-install our tool.
 
 Usage
 -----
